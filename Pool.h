@@ -89,6 +89,7 @@ struct Pool
 
 #if DO_POOL_STATS
 	uint32 GetMaxUsedNum() { return max_used; }
+	uint32 GetUsedNum() { return used_counter_; }
 #endif
 
 private:

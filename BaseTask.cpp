@@ -16,18 +16,18 @@ struct DependencyNode
 	LockFree::Index next_ = LockFree::kInvalidIndex;
 };
 
-enum class ETaskState : uint8
-{
-#if !defined(NDEBUG)
-	Nonexistent_Pooled,
-#endif
-	PendingOrExecuting,
-	Done,
-};
-
 bool BaseTask::IsDone() const
 {
-	return depending_.GetGateState() == ETaskState::Done;
+	const ETaskState state = depending_.GetGateState();
+	assert(state != ETaskState::Nonexistent_Pooled);
+	return state == ETaskState::Done || state == ETaskState::DoneUnconsumedResult;
+}
+
+bool BaseTask::HasUnconsumedResult() const
+{
+	const ETaskState state = depending_.GetGateState();
+	assert(state != ETaskState::Nonexistent_Pooled);
+	return state == ETaskState::DoneUnconsumedResult;
 }
 
 void BaseTask::Wait()
@@ -112,8 +112,8 @@ void TaskSystem::WaitForWorkerThreadsToJoin()
 		thread.join();
 	}
 #if DO_POOL_STATS
-	std::cout << "Max used tasks: " << globals.task_pool_.GetMaxUsedNum() << std::endl;
-	std::cout << "Max used dependency nodes: " << globals.dependency_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used tasks: " << globals.task_pool_.GetUsedNum() << " max used: " << globals.task_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used dependency nodes: " << globals.dependency_pool_.GetUsedNum() << " max used: " << globals.dependency_pool_.GetMaxUsedNum() << std::endl;
 #endif
 }
 
@@ -134,12 +134,12 @@ void BaseTask::Execute()
 	assert(!prerequires_);
 	assert(function_);
 
-	function_();
+	function_(*this);
 	function_ = nullptr;
 
 	DependencyNode* head = nullptr;
 	DependencyNode* tail = nullptr;
-	auto HandleDependency = [&](DependencyNode& node)
+	auto handle_dependency = [&](DependencyNode& node)
 		{
 			if (!head)
 			{
@@ -149,7 +149,8 @@ void BaseTask::Execute()
 			node.task_->OnPrerequireDone();
 			node.task_ = nullptr;
 		};
-	depending_.CloseAndConsume(ETaskState::Done, HandleDependency);
+	const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
+	depending_.CloseAndConsume(new_state, handle_dependency);
 
 	if (head)
 	{
@@ -161,15 +162,16 @@ void BaseTask::Execute()
 void BaseTask::OnReturnToPool()
 {
 	assert(GetRefCount() == 0);
-	depending_.SetFastOnEmpty(ETaskState::Nonexistent_Pooled);
+	const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Nonexistent_Pooled);
+	assert(old_state != ETaskState::Nonexistent_Pooled);
 }
 #endif
 void BaseTask::OnRefCountZero()
 {
-	const ETaskState state = depending_.GetGateState();
-	assert(state != ETaskState::Nonexistent_Pooled);
-	if (state == ETaskState::Done)
+	if (IsDone())
 	{
+		// RefCount is zero, so no other thread has access to the task
+		result_.Reset();
 		globals.task_pool_.Return(*this);
 	}
 }
@@ -196,12 +198,13 @@ std::span<BaseTask> BaseTask::GetPoolSpan()
 	return globals.task_pool_.GetPoolSpan();
 }
 
-TRefCountPtr<BaseTask> TaskSystem::InitializeTask(std::function<void()> function, std::span<BaseTask*> prerequiers, const char* debug_name)
+TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<BaseTask*> prerequiers, const char* debug_name)
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 	task->debug_name_ = debug_name;
 	task->function_ = std::move(function);
-	task->depending_.SetFastOnEmpty(ETaskState::PendingOrExecuting);
+	const ETaskState old_state = task->depending_.SetFastOnEmpty(ETaskState::PendingOrExecuting);
+	assert(old_state == ETaskState::Nonexistent_Pooled);
 	task->prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
 
 	if (!prerequiers.size())
@@ -238,10 +241,4 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTask(std::function<void()> function
 	}
 
 	return task;
-}
-
-TRefCountPtr<BaseTask> BaseTask::Then(std::function<void()> function, const char* debug_name)
-{
-	BaseTask* PreReq[] = { this };
-	return TaskSystem::InitializeTask(function, PreReq, debug_name);
 }

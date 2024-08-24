@@ -43,10 +43,10 @@ public:
 			}
 			else
 			{
-				T* ptr = ExternalStoragePointer<T>();
+				T* ptr = val.ExternalStoragePointer<T>();
 				delete ptr;
 			}
-			ExternalStoragePointer<T>() = nullptr;
+			val.ExternalStoragePointer<T>() = nullptr;
 		}
 	};
 
@@ -66,20 +66,32 @@ public:
 		deleter_ = DeleterHelper<T>::Delete;
 	}
 
-	template<typename T> T& Get()
+	template<typename T> T GetOnce()
 	{
 		assert(deleter_);
-		return IsStoredInline<T>()
+		T& ref = IsStoredInline<T>()
 			? *InternalStoragePointer<T>()
 			: *ExternalStoragePointer<T>();
+		return std::move(ref);
+	}
+
+	bool HasValue() const
+	{
+		return !!deleter_;
+	}
+
+	void ForceReset()
+	{
+		assert(deleter_);
+		deleter_(*this);
+		deleter_ = nullptr;
 	}
 
 	void Reset()
 	{
 		if (deleter_)
 		{
-			deleter_(*this);
-			deleter_ = nullptr;
+			ForceReset();
 		}
 	}
 

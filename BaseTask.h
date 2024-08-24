@@ -8,9 +8,19 @@
 #include "LockFree.h"
 #include "Pool.h"
 #include "AnyValue.h"
+#include <optional>
 
-enum class ETaskState : uint8;
 struct DependencyNode;
+
+enum class ETaskState : uint8
+{
+#if !defined(NDEBUG)
+	Nonexistent_Pooled,
+#endif
+	PendingOrExecuting,
+	Done,
+	DoneUnconsumedResult,
+};
 
 class BaseTask : public TRefCounted<BaseTask>
 {
@@ -21,9 +31,14 @@ public:
 
 	bool IsDone() const;
 
+	bool HasUnconsumedResult() const;
+
 	void Wait();
 
-	TRefCountPtr<BaseTask> Then(std::function<void()> function, const char* debug_name = nullptr);
+	uint16 GetNumberOfPendingPrerequires() const
+	{
+		return prerequires_.load(std::memory_order_relaxed);
+	}
 #pragma region protected
 protected:
 
@@ -35,10 +50,10 @@ protected:
 
 	void OnPrerequireDone();
 
-	std::atomic_uint16_t prerequires_ = 0;
+	std::atomic<uint16> prerequires_ = 0;
 	LockFree::Index next_ = LockFree::kInvalidIndex;
-	std::function<void()> function_;
-	AnyValue<2 * sizeof(uint8*)> result_;
+	std::function<void(BaseTask&)> function_;
+	AnyValue<4 * sizeof(uint8*)> result_;
 	const char* debug_name_ = nullptr;
 	LockFree::Collection<DependencyNode, ETaskState> depending_;
 
@@ -47,6 +62,36 @@ protected:
 	friend TRefCounted<BaseTask>;
 	friend class TaskSystem;
 #pragma endregion
+};
+
+template<typename T>
+class Task : public BaseTask
+{
+public:
+	T DropResultUnsafe() //Not thread safe, must be called once, on a single thread
+	{
+		const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Done);
+		assert(old_state == ETaskState::DoneUnconsumedResult);
+		return result_.GetOnce();
+	}
+
+	std::optional<T> DropResult()
+	{
+		const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Done);
+		assert(old_state == ETaskState::DoneUnconsumedResult || old_state == ETaskState::Done);
+		if (old_state == ETaskState::DoneUnconsumedResult)
+		{
+			return result_.GetOnce();
+		}
+		return {};
+	}
+
+	template<typename F>
+	auto Then(F function, const char* debug_name = nullptr) -> TRefCountPtr<Task<decltype(function())>>
+	{
+		BaseTask* pre_req[] = { this };
+		return TaskSystem::InitializeTask(std::move(function), pre_req, debug_name);
+	}
 };
 
 class TaskSystem
@@ -60,11 +105,34 @@ public:
 
 	static bool ExecuteATask();
 
-	static TRefCountPtr<BaseTask> InitializeTask(std::function<void()> function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr);
+	template<typename F>
+	static auto InitializeTask(F function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr)
+		-> TRefCountPtr<Task<decltype(function())>>
+	{
+		using ResultType = decltype(function());
+		static_assert(sizeof(Task<ResultType>) == sizeof(BaseTask));
+		if constexpr (std::is_void_v<ResultType>)
+		{
+			return TRefCountPtr<Task<ResultType>>(InitializeTaskInner([function = std::move(function)](BaseTask&)
+				{
+					function();
+				}, prerequiers, debug_name));
+		}
+		else
+		{
+			return TRefCountPtr<Task<ResultType>>(InitializeTaskInner([function = std::move(function)](BaseTask& task)
+				{
+					task.result_.Store(function());
+				}, prerequiers, debug_name));
+		}
+	}
 #pragma region private
 private:
+	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr);
+
 	static void OnReadyToExecute(BaseTask&);
 
 	friend class BaseTask;
 #pragma endregion
 };
+

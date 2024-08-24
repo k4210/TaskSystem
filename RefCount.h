@@ -90,6 +90,13 @@ public:
 		Move.Reference = nullptr;
 	}
 
+	template<typename OtherType>
+	explicit TRefCountPtr(TRefCountPtr<OtherType>&& Move)
+	{
+		Reference = static_cast<ReferencedType*>(Move.Get());
+		Move.Reference = nullptr;
+	}
+
 	~TRefCountPtr()
 	{
 		if (Reference)

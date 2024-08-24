@@ -101,17 +101,23 @@ namespace LockFree
 			: state_(State{ .gate = gate })
 		{}
 
-		Gate GetGateState() const
+		State GetState() const
 		{
-			return state_.load(std::memory_order_relaxed).gate;
+			return state_.load(std::memory_order_relaxed);
 		}
 
-		void SetFastOnEmpty(const Gate new_gate)
+		Gate GetGateState() const
+		{
+			return GetState().gate;
+		}
+
+		// Returns old gate
+		Gate SetFastOnEmpty(const Gate new_gate)
 		{
 			State new_state{ kInvalidIndex, new_gate };
-			State old_state = state_.exchange(new_state, std::memory_order_relaxed);
+			const State old_state = state_.exchange(new_state, std::memory_order_relaxed);
 			assert(old_state.head == kInvalidIndex);
-			assert(old_state.gate != new_gate);
+			return old_state.gate;
 		}
 
 		//return if the element was added

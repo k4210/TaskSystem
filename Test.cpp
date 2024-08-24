@@ -1,4 +1,4 @@
-#include "BaseTask.h"
+#include "Task.h"
 #include <iostream>
 #include <sstream>
 #include <chrono>
@@ -66,6 +66,7 @@ int main()
 	std::cout << "sizeof(std::function<void()>) " << sizeof(std::function<void()>) << std::endl;
 	std::cout << "sizeof(std::packaged_task<void()>) " << sizeof(std::packaged_task<void()>) << std::endl;
 	std::cout << "sizeof(BaseTask) " << sizeof(BaseTask) << std::endl;
+	std::cout << "sizeof(std::string) " << sizeof(std::string) << std::endl;
 
 	for (int32 Pass = 0; Pass < 50; Pass++)
 	{
@@ -85,12 +86,49 @@ int main()
 		for (int32 Idx = 0; Idx < 256; Idx++)
 		//while((GetTime() - reporter.start_time) < 1ms)
 		{
-			TRefCountPtr<BaseTask> A = TaskSystem::InitializeTask({ Lambda }, {}, "a")->Then({ Lambda }, "aa");
-			TRefCountPtr<BaseTask> B = TaskSystem::InitializeTask({ Lambda }, {}, "b");
-			B->Then({ Lambda }, "bb");
-			TRefCountPtr<BaseTask> C = TaskSystem::InitializeTask({ Lambda }, {}, "c");
-			BaseTask* Arr[]{ A, B, C};
-			TaskSystem::InitializeTask({ Lambda }, Arr, "d");
+			TRefCountPtr<Task<void>> A = TaskSystem::InitializeTask(Lambda, {}, "a")->Then(Lambda, "aa");
+			TRefCountPtr<Task<void>> B = TaskSystem::InitializeTask(Lambda, {}, "b");
+			BaseTask* Arr[]{ A, B };
+			TaskSystem::InitializeTask(Lambda, Arr, "c");
+		}
+
+		reporter.wait(0us);
+		reporter.raport(counter, "task initialization complete");
+		do
+		{
+			reporter.wait(50us);
+			reporter.raport(counter);
+		} while (counter < 1000);
+
+		TaskSystem::StopWorkerThreads();
+		reporter.display();
+		std::cout << "StopWorkerThreads" << std::endl;
+
+		TaskSystem::WaitForWorkerThreadsToJoin();
+	}
+
+	for (int32 Pass = 0; Pass < 50; Pass++)
+	{
+		std::cout << "StartWorkerThreads" << std::endl;
+		TaskSystem::StartWorkerThreads();
+		std::this_thread::sleep_for(4ms); // let worker threads start
+
+		std::atomic_int32_t counter = 0;
+		auto Lambda = [&counter]() -> std::string
+			{
+				counter.fetch_add(1, std::memory_order_relaxed);
+				return "test";
+			};
+
+		Reporter reporter;
+
+		for (int32 Idx = 0; Idx < 256; Idx++)
+			//while((GetTime() - reporter.start_time) < 1ms)
+		{
+			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(Lambda, {}, "a")->Then(Lambda, "aa");
+			TRefCountPtr<Task<std::string>> B = TaskSystem::InitializeTask(Lambda, {}, "b");
+			BaseTask* Arr[]{ A, B };
+			TaskSystem::InitializeTask(Lambda, Arr, "c");
 		}
 
 		reporter.wait(0us);
