@@ -11,7 +11,7 @@ struct TRefCounted
 
 	~TRefCounted()
 	{
-		assert(RefCount.load() == 0);
+		assert(!GetRefCount());
 	}
 
 	TRefCounted(const TRefCounted&) = delete;
@@ -51,7 +51,7 @@ struct TRefCounted
 
 	uint32 GetRefCount() const
 	{
-		return static_cast<uint32>(RefCount.load());
+		return static_cast<uint32>(RefCount.load(std::memory_order_relaxed));
 	}
 
 private:
@@ -82,19 +82,39 @@ public:
 
 	TRefCountPtr(const TRefCountPtr& Copy)
 		: TRefCountPtr(Copy.Get())
-	{}
+	{
+		assert(!Reference || (Reference->GetRefCount() >= 2));
+	}
 
 	TRefCountPtr(TRefCountPtr&& Move)
 	{
 		Reference = Move.Get();
 		Move.Reference = nullptr;
+		assert(!Reference || (Reference->GetRefCount() >= 1));
 	}
 
+	/* Something is wrong with this ? 
 	template<typename OtherType>
 	explicit TRefCountPtr(TRefCountPtr<OtherType>&& Move)
 	{
 		Reference = static_cast<ReferencedType*>(Move.Get());
 		Move.Reference = nullptr;
+	}
+	*/
+
+	template<typename OtherType>
+	TRefCountPtr<OtherType> Cast() &&
+	{
+		TRefCountPtr<OtherType> other;
+		other.Reference = static_cast<OtherType*>(Get());
+		Reference = nullptr;
+		return other;
+	}
+
+	template<typename OtherType>
+	TRefCountPtr<OtherType> Cast() &
+	{
+		return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
 	}
 
 	~TRefCountPtr()

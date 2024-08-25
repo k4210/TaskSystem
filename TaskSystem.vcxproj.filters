@@ -24,7 +24,7 @@
     <ClInclude Include="LockFree.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BaseTask.h">
+    <ClInclude Include="Task.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Pool.h">
@@ -34,9 +34,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AnyValue.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Task.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

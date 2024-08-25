@@ -1,4 +1,4 @@
-#include "BaseTask.h"
+#include "Task.h"
 #include <thread>
 #include <iostream>
 
@@ -30,16 +30,9 @@ bool BaseTask::HasUnconsumedResult() const
 	return state == ETaskState::DoneUnconsumedResult;
 }
 
-void BaseTask::Wait()
+uint16 BaseTask::GetNumberOfPendingPrerequires() const
 {
-	while (!IsDone())
-	{
-		const bool executed = TaskSystem::ExecuteATask();
-		if (!executed)
-		{
-			std::this_thread::yield();
-		}
-	}
+	return prerequires_.load(std::memory_order_relaxed);
 }
 
 BaseTask::BaseTask()
@@ -70,7 +63,7 @@ std::span<DependencyNode> DependencyNode::GetPoolSpan()
 
 void TaskSystem::StartWorkerThreads()
 {
-	globals.~TaskSystemGlobals();//Remove
+	globals.~TaskSystemGlobals();//TODO Remove
 	new (&globals) TaskSystemGlobals();
 
 	globals.working_ = true;
@@ -204,6 +197,7 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	task->debug_name_ = debug_name;
 	task->function_ = std::move(function);
 	const ETaskState old_state = task->depending_.SetFastOnEmpty(ETaskState::PendingOrExecuting);
+	assert(task->depending_.GetState().head == LockFree::kInvalidIndex);
 	assert(old_state == ETaskState::Nonexistent_Pooled);
 	task->prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
 
@@ -214,7 +208,7 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	}
 
 	DependencyNode* node = nullptr;
-	for (const TRefCountPtr<BaseTask>& prereq : prerequiers)
+	for (BaseTask* prereq : prerequiers)
 	{
 		assert(prereq);
 

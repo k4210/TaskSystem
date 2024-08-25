@@ -67,7 +67,9 @@ int main()
 	std::cout << "sizeof(std::packaged_task<void()>) " << sizeof(std::packaged_task<void()>) << std::endl;
 	std::cout << "sizeof(BaseTask) " << sizeof(BaseTask) << std::endl;
 	std::cout << "sizeof(std::string) " << sizeof(std::string) << std::endl;
-
+	std::cout << "alignof(void*) " << alignof(void*) << std::endl;
+	std::cout << "alignof(std::string) " << alignof(std::string) << std::endl;
+	/*
 	for (int32 Pass = 0; Pass < 50; Pass++)
 	{
 		std::cout << "StartWorkerThreads" << std::endl;
@@ -106,6 +108,7 @@ int main()
 
 		TaskSystem::WaitForWorkerThreadsToJoin();
 	}
+	*/
 
 	for (int32 Pass = 0; Pass < 50; Pass++)
 	{
@@ -120,15 +123,33 @@ int main()
 				return "test";
 			};
 
+		auto LambdaRead = [&counter](const std::string& str) -> void
+			{
+				counter.fetch_add(1, std::memory_order_relaxed);
+				std::cout << str << std::endl;
+			};
+
+		auto LambdaConsume = [&counter](std::string str) -> void
+			{
+				counter.fetch_add(1, std::memory_order_relaxed);
+				std::cout << str << std::endl;
+			};
+
 		Reporter reporter;
 
 		for (int32 Idx = 0; Idx < 256; Idx++)
 			//while((GetTime() - reporter.start_time) < 1ms)
 		{
-			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(Lambda, {}, "a")->Then(Lambda, "aa");
-			TRefCountPtr<Task<std::string>> B = TaskSystem::InitializeTask(Lambda, {}, "b");
-			BaseTask* Arr[]{ A, B };
-			TaskSystem::InitializeTask(Lambda, Arr, "c");
+			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(Lambda, {}, "a");
+			A->ThenRead(LambdaRead, "b");
+			A->ThenRead(LambdaRead, "c");
+			A->ThenRead(LambdaRead, "d");
+			//TRefCountPtr<Task<void>> BB = TaskSystem::InitializeTask(Lambda, {}, "b")->ThenConsume(LambdaConsume, "aa");
+			//TRefCountPtr<Task<void>> CC = TaskSystem::InitializeTask(Lambda, {}, "c")->ThenRead(LambdaRead, "cc");
+
+			//TRefCountPtr<Task<std::string>> BB = TaskSystem::InitializeTask(Lambda, {}, "c")->Then(Lambda, "cc");
+			//BaseTask* Arr[]{ A, B };
+			//TaskSystem::InitializeTask(Lambda, Arr, "c");
 		}
 
 		reporter.wait(0us);
@@ -137,7 +158,7 @@ int main()
 		{
 			reporter.wait(50us);
 			reporter.raport(counter);
-		} while (counter < 1000);
+		} while (counter < 1024);
 
 		TaskSystem::StopWorkerThreads();
 		reporter.display();
@@ -145,5 +166,6 @@ int main()
 
 		TaskSystem::WaitForWorkerThreadsToJoin();
 	}
+
 	return 0;
 }

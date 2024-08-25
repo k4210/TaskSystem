@@ -135,9 +135,8 @@
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
     <ClInclude Include="RefCount.h" />
-    <ClInclude Include="BaseTask.h" />
-    <ClInclude Include="RefCountPoolPtr.h" />
     <ClInclude Include="Task.h" />
+    <ClInclude Include="RefCountPoolPtr.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BaseTask.cpp" />
