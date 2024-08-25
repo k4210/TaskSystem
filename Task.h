@@ -31,7 +31,7 @@ public:
 
 	static std::span<BaseTask> GetPoolSpan();
 
-	bool IsDone() const;
+	bool IsPendingOrExecuting() const;
 
 	bool HasUnconsumedResult() const;
 

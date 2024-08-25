@@ -16,11 +16,11 @@ struct DependencyNode
 	LockFree::Index next_ = LockFree::kInvalidIndex;
 };
 
-bool BaseTask::IsDone() const
+bool BaseTask::IsPendingOrExecuting() const
 {
 	const ETaskState state = depending_.GetGateState();
 	assert(state != ETaskState::Nonexistent_Pooled);
-	return state == ETaskState::Done || state == ETaskState::DoneUnconsumedResult;
+	return state == ETaskState::PendingOrExecuting;
 }
 
 bool BaseTask::HasUnconsumedResult() const
@@ -161,10 +161,15 @@ void BaseTask::OnReturnToPool()
 #endif
 void BaseTask::OnRefCountZero()
 {
-	if (IsDone())
+	const ETaskState state = depending_.GetGateState();
+	assert(state != ETaskState::Nonexistent_Pooled);
+	if (state == ETaskState::DoneUnconsumedResult)
 	{
 		// RefCount is zero, so no other thread has access to the task
 		result_.Reset();
+	}
+	if (state == ETaskState::Done || state == ETaskState::DoneUnconsumedResult)
+	{
 		globals.task_pool_.Return(*this);
 	}
 }
