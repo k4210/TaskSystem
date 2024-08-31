@@ -23,13 +23,6 @@ bool BaseTask::IsPendingOrExecuting() const
 	return state == ETaskState::PendingOrExecuting;
 }
 
-bool BaseTask::HasUnconsumedResult() const
-{
-	const ETaskState state = depending_.GetGateState();
-	assert(state != ETaskState::Nonexistent_Pooled);
-	return state == ETaskState::DoneUnconsumedResult;
-}
-
 uint16 BaseTask::GetNumberOfPendingPrerequires() const
 {
 	return prerequires_.load(std::memory_order_relaxed);
@@ -44,6 +37,25 @@ BaseTask::BaseTask()
 #endif
 	)
 {}
+
+void BaseTask::OnPrerequireDone()
+{
+	assert(prerequires_);
+	uint16 new_count = --prerequires_;
+	if (!new_count)
+	{
+		TaskSystem::OnReadyToExecute(*this);
+	}
+}
+
+#if !defined(NDEBUG)
+void BaseTask::OnReturnToPool()
+{
+	assert(GetRefCount() == 0);
+	const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Nonexistent_Pooled);
+	assert(old_state != ETaskState::Nonexistent_Pooled);
+}
+#endif
 
 struct TaskSystemGlobals
 {
@@ -61,11 +73,14 @@ std::span<DependencyNode> DependencyNode::GetPoolSpan()
 	return globals.dependency_pool_.GetPoolSpan();
 }
 
+void TaskSystem::ResetGlobals()
+{
+	globals.~TaskSystemGlobals();
+	new (&globals) TaskSystemGlobals();
+}
+
 void TaskSystem::StartWorkerThreads()
 {
-	globals.~TaskSystemGlobals();//TODO Remove
-	new (&globals) TaskSystemGlobals();
-
 	globals.working_ = true;
 
 	auto loop_body = []()
@@ -105,8 +120,8 @@ void TaskSystem::WaitForWorkerThreadsToJoin()
 		thread.join();
 	}
 #if DO_POOL_STATS
-	std::cout << "Max used tasks: " << globals.task_pool_.GetUsedNum() << " max used: " << globals.task_pool_.GetMaxUsedNum() << std::endl;
-	std::cout << "Max used dependency nodes: " << globals.dependency_pool_.GetUsedNum() << " max used: " << globals.dependency_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used tasks: "  << globals.task_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used dependency nodes: "<< globals.dependency_pool_.GetMaxUsedNum() << std::endl;
 #endif
 }
 
@@ -151,14 +166,7 @@ void BaseTask::Execute()
 		globals.dependency_pool_.ReturnChain(*head, *tail);
 	}
 }
-#if !defined(NDEBUG)
-void BaseTask::OnReturnToPool()
-{
-	assert(GetRefCount() == 0);
-	const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Nonexistent_Pooled);
-	assert(old_state != ETaskState::Nonexistent_Pooled);
-}
-#endif
+
 void BaseTask::OnRefCountZero()
 {
 	const ETaskState state = depending_.GetGateState();
@@ -181,22 +189,12 @@ void TaskSystem::OnReadyToExecute(BaseTask& task)
 	globals.ready_to_execute_.Push(task);
 }
 
-void BaseTask::OnPrerequireDone()
-{
-	assert(prerequires_);
-	uint16 new_count = --prerequires_;
-	if (!new_count)
-	{
-		TaskSystem::OnReadyToExecute(*this);
-	}
-}
-
 std::span<BaseTask> BaseTask::GetPoolSpan()
 {
 	return globals.task_pool_.GetPoolSpan();
 }
 
-TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<BaseTask*> prerequiers, const char* debug_name)
+TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<BaseTask*> prerequiers, const char* debug_name, ETaskFlags flags)
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 	task->debug_name_ = debug_name;
@@ -206,12 +204,25 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	assert(old_state == ETaskState::Nonexistent_Pooled);
 	task->prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
 
+	auto ProcessOnReady = [&]()
+	{
+		if (enum_has_any(flags, ETaskFlags::TryExecuteImmediate))
+		{
+			task->Execute();
+		}
+		else
+		{
+			OnReadyToExecute(*task);
+		}
+	};
+
 	if (!prerequiers.size())
 	{
-		OnReadyToExecute(*task);
+		ProcessOnReady();
 		return task;
 	}
 
+	uint16 inactive_prereq = 0;
 	DependencyNode* node = nullptr;
 	for (BaseTask* prereq : prerequiers)
 	{
@@ -230,13 +241,23 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 		}
 		else
 		{
-			task->OnPrerequireDone();
+			inactive_prereq++;
 		}
 	}
 	if (node)
 	{
 		node->task_ = nullptr;
 		globals.dependency_pool_.Return(*node);
+	}
+
+	if (inactive_prereq)
+	{
+		const uint16 before = task->prerequires_.fetch_sub(inactive_prereq);
+		if (before == inactive_prereq)
+		{
+			assert(task->prerequires_ == 0);
+			ProcessOnReady();
+		}
 	}
 
 	return task;

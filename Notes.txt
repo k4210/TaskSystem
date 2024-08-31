@@ -1,7 +1,2 @@
-Task improvements:
-- tests/profiling
-- FIFO lockfree queue for ready_to_execute_
-	- OR just priority stack?
-- task per named thread
-
-Coroutines
+TODO:
+- allocation support

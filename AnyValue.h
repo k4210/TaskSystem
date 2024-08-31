@@ -50,6 +50,7 @@ public:
 		deleter_ = &DeleterHelper<T>::Delete;
 	}
 
+	// the stored value is left in undefined / "moved" state
 	template<typename T> T GetOnce()
 	{
 		assert(deleter_);

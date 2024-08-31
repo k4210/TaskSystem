@@ -1,4 +1,3 @@
-#include "Task.h"
 #include <iostream>
 #include <sstream>
 #include <chrono>
@@ -6,166 +5,108 @@
 #include <vector>
 #include <memory>
 #include <future>
+#include <array>
+#include "Task.h"
+#include "Coroutine.h"
+#include "Test.h"
 
-using TimeSpan = std::chrono::nanoseconds;
-inline auto GetTime() { return std::chrono::high_resolution_clock::now(); }
-using TimeType = decltype(GetTime());
-inline double ToMiliseconds(TimeSpan duration)
+using namespace std::chrono_literals;
+
+std::atomic_int32_t counter = 0;
+
+TUniqueCoroutine<int32> InnerCoroutine()
 {
-	return duration.count() / (1000.0 * 1000.0);
+	int32 val = co_await TaskSystem::InitializeTask([]() -> int32
+		{
+			counter.fetch_add(1, std::memory_order_relaxed);
+			return 3;
+		}, {}, "task in inner coroutine");
+	co_return val;
 }
 
-struct Reporter
+TUniqueCoroutine<int32> CoroutineTest()
 {
-	std::vector<std::string> raports_;
-	TimeType start_time;
-	TimeType last_time;
-
-	Reporter()
-	{
-		raports_.reserve(64);
-		start_time = GetTime();
-		last_time = start_time;
-	}
-
-	void wait(TimeSpan span)
-	{
-		TimeType current_time;
-		do
+	TRefCountPtr<Task<int32>> async_task = TaskSystem::InitializeTask([]() -> int32
 		{
-			current_time = GetTime();
-		} while ((current_time - last_time) < span);
-		last_time = current_time;
-	}
+			counter.fetch_add(1, std::memory_order_relaxed);
+			return 1;
+		}, {}, "task 1 in coroutine");
 
-	void raport(int32 counter, const char* add_msg = nullptr)
-	{
-		const TimeSpan duration = last_time - start_time;
-		std::ostringstream buf;
-		buf << "Executed: " << counter << ", duration: " << ToMiliseconds(duration) << "ms. ";
-		if (add_msg)
+	int32 val2 = co_await TaskSystem::InitializeTask([]() -> int32
 		{
-			buf << add_msg;
-		}
-		raports_.push_back(buf.str());
-	};
+			counter.fetch_add(1, std::memory_order_relaxed);
+			return 2;
+		}, {}, "task 2 in coroutine");
 
-	void display()
-	{
-		for (const std::string& str : raports_)
-		{
-			std::cout << str << std::endl;
-		}
-	}
+	int32 val1 = co_await std::move(async_task);
+
+	int32 val3 = co_await InnerCoroutine();
+
+	co_return val1 + val2 + val3;
 };
 
 int main()
 {
-	using namespace std::chrono_literals;
-
-	std::cout << "sizeof(std::function<void()>) " << sizeof(std::function<void()>) << std::endl;
-	std::cout << "sizeof(std::packaged_task<void()>) " << sizeof(std::packaged_task<void()>) << std::endl;
-	std::cout << "sizeof(BaseTask) " << sizeof(BaseTask) << std::endl;
-	std::cout << "sizeof(std::string) " << sizeof(std::string) << std::endl;
-	std::cout << "alignof(void*) " << alignof(void*) << std::endl;
-	std::cout << "alignof(std::string) " << alignof(std::string) << std::endl;
-	/*
-	for (int32 Pass = 0; Pass < 50; Pass++)
-	{
-		std::cout << "StartWorkerThreads" << std::endl;
-		TaskSystem::StartWorkerThreads();
-		std::this_thread::sleep_for(4ms); // let worker threads start
-
-		std::atomic_int32_t counter = 0;
-		auto Lambda = [&counter]()
-			{
-				//std::this_thread::sleep_for(0us);
-				counter.fetch_add(1, std::memory_order_relaxed);
-			};
-
-		Reporter reporter;
-
-		for (int32 Idx = 0; Idx < 256; Idx++)
-		//while((GetTime() - reporter.start_time) < 1ms)
+	auto LambdaEmpty = []()
 		{
-			TRefCountPtr<Task<void>> A = TaskSystem::InitializeTask(Lambda, {}, "a")->Then(Lambda, "aa");
-			TRefCountPtr<Task<void>> B = TaskSystem::InitializeTask(Lambda, {}, "b");
-			BaseTask* Arr[]{ A, B };
-			TaskSystem::InitializeTask(Lambda, Arr, "c");
-		}
+			counter.fetch_add(1, std::memory_order_relaxed);
+		};
 
-		reporter.wait(0us);
-		reporter.raport(counter, "task initialization complete");
-		do
+	auto LambdaRead = [](const std::string&) -> void
 		{
-			reporter.wait(50us);
-			reporter.raport(counter);
-		} while (counter < 1000);
+			counter.fetch_add(1, std::memory_order_relaxed);
+		};
 
-		TaskSystem::StopWorkerThreads();
-		reporter.display();
-		std::cout << "StopWorkerThreads" << std::endl;
-
-		TaskSystem::WaitForWorkerThreadsToJoin();
-	}
-	*/
-
-	for (int32 Pass = 0; Pass < 50; Pass++)
-	{
-		std::cout << "StartWorkerThreads" << std::endl;
-		TaskSystem::StartWorkerThreads();
-		std::this_thread::sleep_for(4ms); // let worker threads start
-
-		std::atomic_int32_t counter = 0;
-		auto Lambda = [&counter]() -> std::string
-			{
-				counter.fetch_add(1, std::memory_order_relaxed);
-				return "test";
-			};
-
-		auto LambdaRead = [&counter](const std::string& str) -> void
-			{
-				counter.fetch_add(1, std::memory_order_relaxed);
-				std::cout << str << std::endl;
-			};
-
-		auto LambdaConsume = [&counter](std::string str) -> void
-			{
-				counter.fetch_add(1, std::memory_order_relaxed);
-				std::cout << str << std::endl;
-			};
-
-		Reporter reporter;
-
-		for (int32 Idx = 0; Idx < 256; Idx++)
-			//while((GetTime() - reporter.start_time) < 1ms)
+	auto LambdaConsume = [](std::string) -> void
 		{
-			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(Lambda, {}, "a");
-			A->ThenRead(LambdaRead, "b");
-			A->ThenRead(LambdaRead, "c");
-			A->ThenRead(LambdaRead, "d");
-			//TRefCountPtr<Task<void>> BB = TaskSystem::InitializeTask(Lambda, {}, "b")->ThenConsume(LambdaConsume, "aa");
-			//TRefCountPtr<Task<void>> CC = TaskSystem::InitializeTask(Lambda, {}, "c")->ThenRead(LambdaRead, "cc");
+			counter.fetch_add(1, std::memory_order_relaxed);
+		};
 
-			//TRefCountPtr<Task<std::string>> BB = TaskSystem::InitializeTask(Lambda, {}, "c")->Then(Lambda, "cc");
-			//BaseTask* Arr[]{ A, B };
-			//TaskSystem::InitializeTask(Lambda, Arr, "c");
-		}
+	const uint32 outer_loop = 64;
+	const uint32 inner_loop = 256;
+	const uint32 num_per_body = 4;
+	const bool wait_for_threads_to_join = true;
 
-		reporter.wait(0us);
-		reporter.raport(counter, "task initialization complete");
-		do
+	PerformTest([&](uint32)
 		{
-			reporter.wait(50us);
-			reporter.raport(counter);
-		} while (counter < 1024);
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
+			A->Then(LambdaEmpty, "b");
+			A->Then(LambdaEmpty, "c");
+			A->Then(LambdaEmpty, "d");
+		}, inner_loop, outer_loop, num_per_body, "A->Then");
 
-		TaskSystem::StopWorkerThreads();
-		reporter.display();
-		std::cout << "StopWorkerThreads" << std::endl;
+	PerformTest([&](uint32)
+		{
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
 
-		TaskSystem::WaitForWorkerThreadsToJoin();
-	}
+			BaseTask* Arr[]{ A, B, C };
+			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
+		}, inner_loop, outer_loop, num_per_body, "InitializeTask");
+
+	PerformTest([&](uint32)
+		{
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
+
+			BaseTask* Arr[]{ A, B, C };
+			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
+		}, inner_loop, outer_loop, num_per_body, "Execute epmty tasks", wait_for_threads_to_join);
+
+	std::array<TUniqueCoroutine<int32>, 256> handles;
+	PerformTest([&handles](uint32 idx)
+		{
+			handles[idx] = CoroutineTest();
+		}, inner_loop, outer_loop, 1, "Coroutines complex", wait_for_threads_to_join,
+		[&handles]()
+		{
+			for (auto& handle : handles)
+			{
+				handle = {};
+			}
+		});
 
 	return 0;
 }

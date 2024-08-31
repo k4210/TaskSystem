@@ -132,11 +132,15 @@
   <ItemGroup>
     <ClInclude Include="AnyValue.h" />
     <ClInclude Include="BaseTypes.h" />
+    <ClInclude Include="Coroutine.h" />
+    <ClInclude Include="CoroutineBase.h" />
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
+    <ClInclude Include="Profiling.h" />
     <ClInclude Include="RefCount.h" />
     <ClInclude Include="Task.h" />
     <ClInclude Include="RefCountPoolPtr.h" />
+    <ClInclude Include="Test.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BaseTask.cpp" />

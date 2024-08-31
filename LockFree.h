@@ -5,6 +5,7 @@
 #include <limits>
 
 #include <assert.h>
+#include <array>
 #include "BaseTypes.h"
 
 namespace LockFree
@@ -23,7 +24,7 @@ namespace LockFree
 			State state = state_.load(std::memory_order_relaxed);
 			do
 			{
-				new_state.tag = state.tag;
+				new_state.tag = state.tag + 1;
 				node.next_ = state.head;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
@@ -37,7 +38,7 @@ namespace LockFree
 			State state = state_.load(std::memory_order_relaxed);
 			do
 			{
-				new_state.tag = state.tag;
+				new_state.tag = state.tag + 1;
 				chain_tail.next_ = state.head;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
@@ -143,37 +144,77 @@ namespace LockFree
 		template<typename Func>
 		void CloseAndConsume(const Gate closed, Func& func)
 		{
-			State state = UpdateGateState(closed);
+			const State old_state = state_.exchange(State{ .gate = closed });
 
-			Index head = state.head;
+			Index head = old_state.head;
 			while (head != kInvalidIndex)
 			{
 				Node& node = FromPoolIndex<Node>(head);
 				head = node.next_;
 				func(node); // node.next_ should be handled here
 			}
-
-			assert(state_.load(std::memory_order_relaxed) == state);
-			state.head = kInvalidIndex;
-			state_ = state;
 		}
 
 	private:
-		//returns newest state
-		State UpdateGateState(const Gate new_gate)
+		std::atomic<State> state_;
+	};
+
+	template<std::size_t Size>
+	struct IndexQueue
+	{
+		void Push(Index val)
 		{
+			assert(val != kInvalidIndex);
 			State state = state_.load(std::memory_order_relaxed);
-			State new_state{ .gate = new_gate };
+			State new_state;
 			do
 			{
-				assert(state.gate != new_gate);
-				new_state.head = state.head;
+				assert(state.size_ < Size);
+				new_state = State{ state.first_, state.size_ + 1, state.tag_ + 1 };
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
-			return new_state;
+
+			const Index idx = (new_state.first_ + new_state.size_) % Size;
+			assert(array_[idx].load(std::memory_order_relaxed) == kInvalidIndex);
+			array_[idx].store(val, std::memory_order_relaxed);
 		}
 
-		std::atomic<State> state_;
+		Index Pop()
+		{
+			State state = state_.load(std::memory_order_relaxed);
+			State new_state;
+			Index val = kInvalidIndex;
+			do
+			{
+				if (!state.size_)
+				{
+					return kInvalidIndex;
+				}
+				val = array_[state.first_].load(std::memory_order_relaxed);
+				if (val == kInvalidIndex)
+				{
+					return kInvalidIndex;
+				}
+				new_state = State{ (state.first_ + 1) % Size,
+					state.size_ - 1, state.tag_ + 1 };
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			assert(array_[state.first_].load(std::memory_order_relaxed) == val);
+			array_[state.first_].store(kInvalidIndex, std::memory_order_relaxed);
+			return val;
+		}
+
+
+	private:
+		struct State
+		{
+			Index first_ = 0;
+			Index size_ = 0;
+			Tag tag_ = 0;
+		};
+		std::array<std::atomic<Index>, Size> array_ = { kInvalidIndex };
+		std::atomic<State> state_ = {};
 	};
 }

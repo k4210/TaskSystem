@@ -14,6 +14,12 @@
 struct DependencyNode;
 template<typename T> class Task;
 
+enum class ETaskFlags : uint8
+{
+	None = 0,
+	TryExecuteImmediate = 1
+};
+
 enum class ETaskState : uint8
 {
 #if !defined(NDEBUG)
@@ -32,8 +38,6 @@ public:
 	static std::span<BaseTask> GetPoolSpan();
 
 	bool IsPendingOrExecuting() const;
-
-	bool HasUnconsumedResult() const;
 
 	uint16 GetNumberOfPendingPrerequires() const;
 
@@ -79,7 +83,9 @@ public:
 	{
 		const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Done);
 		assert(old_state == ETaskState::DoneUnconsumedResult);
-		return result_.GetOnce<T>();
+		T result = result_.GetOnce<T>();
+		result_.Reset();
+		return result;
 	}
 
 	const T& ShareResult() const
@@ -89,7 +95,7 @@ public:
 	}
 
 	template<typename F>
-	auto ThenRead(F function, const char* debug_name = nullptr) -> TRefCountPtr < Task<decltype(function(T{})) >>
+	auto ThenRead(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
 	{
 		BaseTask* pre_req[] = { this };
 		using ResultType = decltype(function(T{}));
@@ -105,27 +111,29 @@ public:
 					return function(source->ShareResult());
 				}
 			};
-		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name);
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name, flags);
 	}
 
 	template<typename F>
-	auto ThenConsume(F function, const char* debug_name = nullptr) -> TRefCountPtr < Task<decltype(function(T{})) >>
+	auto ThenConsume(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
 	{
 		BaseTask* pre_req[] = { this };
 		using ResultType = decltype(function(T{}));
 		auto lambda = [source = TRefCountPtr<Task<T>>(this), function = std::move(function)]() -> ResultType
 			{
+				T value = source->DropResult();
+				source = nullptr;
 				if constexpr (std::is_void_v<ResultType>)
 				{
-					function(source->DropResult());
+					function(value);
 					return;
 				}
 				else
 				{
-					return function(source->DropResult());
+					return function(value);
 				}
 			};
-		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name);
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name, flags);
 	}
 };
 
@@ -138,6 +146,8 @@ class Task<void> : public BaseTask
 class TaskSystem
 {
 public:
+	static void ResetGlobals();
+
 	static void StartWorkerThreads();
 
 	static void StopWorkerThreads();
@@ -147,7 +157,7 @@ public:
 	static bool ExecuteATask();
 
 	template<typename F>
-	static auto InitializeTask(F function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr)
+	static auto InitializeTask(F function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None)
 		-> TRefCountPtr<Task<decltype(function())>>
 	{
 		using ResultType = decltype(function());
@@ -157,19 +167,20 @@ public:
 			return InitializeTaskInner([function = std::move(function)](BaseTask&)
 				{
 					function();
-				}, prerequiers, debug_name).Cast<Task<ResultType>>();
+				}, prerequiers, debug_name, flags).Cast<Task<ResultType>>();
 		}
 		else
 		{
 			return InitializeTaskInner([function = std::move(function)](BaseTask& task)
 				{
 					task.result_.Store(function());
-				}, prerequiers, debug_name).Cast<Task<ResultType>>();
+				}, prerequiers, debug_name, flags).Cast<Task<ResultType>>();
 		}
 	}
 #pragma region private
 private:
-	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr);
+	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function, 
+		std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None);
 
 	static void OnReadyToExecute(BaseTask&);
 
