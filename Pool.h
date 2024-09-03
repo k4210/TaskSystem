@@ -100,3 +100,4 @@ private:
 	uint32 max_used = 0;
 #endif
 };
+

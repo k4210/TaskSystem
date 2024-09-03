@@ -5,6 +5,14 @@
 
 namespace Coroutine
 {
+	namespace detail
+	{
+		void* do_allocate(std::size_t bytes);
+		void do_deallocate(void* p);
+	}
+
+#define COROUTINE_CUSTOM_ALLOC 0  
+
 	template <typename Return = void, typename Yield = void>
 	class TPromise : public TPromiseYield<Return, Yield>
 	{
@@ -17,6 +25,23 @@ namespace Coroutine
 
 	public:
 		using TaskType = TUniqueHandle<TPromise>;
+#if COROUTINE_CUSTOM_ALLOC
+		void* operator new(std::size_t size)
+		{
+			return detail::do_allocate(size);
+		}
+
+		void operator delete (void* ptr)
+		{
+			detail::do_deallocate(ptr);
+		}
+
+		static TaskType get_return_object_on_allocation_failure()
+		{
+			assert(false);
+			return TaskType();
+		}
+#endif //COROUTINE_CUSTOM_ALLOC
 
 		EStatus Status() const
 		{

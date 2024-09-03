@@ -62,7 +62,7 @@ struct TaskSystemGlobals
 	Pool<BaseTask, 1024> task_pool_;
 	Pool<DependencyNode, 4096> dependency_pool_;
 	LockFree::Stack<BaseTask> ready_to_execute_;
-	std::array<std::thread, 8> threads_;
+	std::array<std::thread, 16> threads_;
 	bool working_ = false;
 };
 

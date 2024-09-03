@@ -87,6 +87,53 @@ namespace LockFree
 		std::atomic<State> state_;
 	};
 
+	template<typename Node>
+	struct PointerBasedStack
+	{
+		void Push(Node& node)
+		{
+			State new_state{ .head = &node };
+			State state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				new_state.tag = state.tag + 1;
+				node.next_ = state.head;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+		}
+
+		Node* Pop()
+		{
+			State state = state_.load(std::memory_order_relaxed);
+			State new_state;
+			do
+			{
+				if (nullptr == state.head)
+				{
+					return nullptr;
+				}
+				new_state.head = state.head->next_;
+				new_state.tag = state.tag + 1;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+
+			Node& node = *state.head;
+			node.next_ = nullptr;
+			return &node;
+		}
+
+	private:
+		struct State
+		{
+			Node* head = nullptr;
+			Tag tag = 0;
+		};
+
+		std::atomic<State> state_;
+	};
+
 	template<typename Node, typename Gate>
 	struct Collection
 	{
@@ -159,62 +206,4 @@ namespace LockFree
 		std::atomic<State> state_;
 	};
 
-	template<std::size_t Size>
-	struct IndexQueue
-	{
-		void Push(Index val)
-		{
-			assert(val != kInvalidIndex);
-			State state = state_.load(std::memory_order_relaxed);
-			State new_state;
-			do
-			{
-				assert(state.size_ < Size);
-				new_state = State{ state.first_, state.size_ + 1, state.tag_ + 1 };
-			} while (!state_.compare_exchange_weak(state, new_state,
-				std::memory_order_release,
-				std::memory_order_relaxed));
-
-			const Index idx = (new_state.first_ + new_state.size_) % Size;
-			assert(array_[idx].load(std::memory_order_relaxed) == kInvalidIndex);
-			array_[idx].store(val, std::memory_order_relaxed);
-		}
-
-		Index Pop()
-		{
-			State state = state_.load(std::memory_order_relaxed);
-			State new_state;
-			Index val = kInvalidIndex;
-			do
-			{
-				if (!state.size_)
-				{
-					return kInvalidIndex;
-				}
-				val = array_[state.first_].load(std::memory_order_relaxed);
-				if (val == kInvalidIndex)
-				{
-					return kInvalidIndex;
-				}
-				new_state = State{ (state.first_ + 1) % Size,
-					state.size_ - 1, state.tag_ + 1 };
-			} while (!state_.compare_exchange_weak(state, new_state,
-				std::memory_order_release,
-				std::memory_order_relaxed));
-			assert(array_[state.first_].load(std::memory_order_relaxed) == val);
-			array_[state.first_].store(kInvalidIndex, std::memory_order_relaxed);
-			return val;
-		}
-
-
-	private:
-		struct State
-		{
-			Index first_ = 0;
-			Index size_ = 0;
-			Tag tag_ = 0;
-		};
-		std::array<std::atomic<Index>, Size> array_ = { kInvalidIndex };
-		std::atomic<State> state_ = {};
-	};
 }

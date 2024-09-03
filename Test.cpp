@@ -62,11 +62,11 @@ int main()
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
 
-	const uint32 outer_loop = 64;
-	const uint32 inner_loop = 256;
-	const uint32 num_per_body = 4;
+	constexpr uint32 outer_loop = 64;
+	constexpr uint32 inner_loop = 256;
+	//const uint32 num_per_body = 4;
 	const bool wait_for_threads_to_join = true;
-
+	/*
 	PerformTest([&](uint32)
 		{
 			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
@@ -94,12 +94,12 @@ int main()
 			BaseTask* Arr[]{ A, B, C };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
 		}, inner_loop, outer_loop, num_per_body, "Execute epmty tasks", wait_for_threads_to_join);
-
-	std::array<TUniqueCoroutine<int32>, 256> handles;
+		*/
+	std::array<TUniqueCoroutine<int32>, 4 * inner_loop> handles;
 	PerformTest([&handles](uint32 idx)
 		{
 			handles[idx] = CoroutineTest();
-		}, inner_loop, outer_loop, 1, "Coroutines complex", wait_for_threads_to_join,
+		}, 4 * inner_loop, 16 * outer_loop, 1, "Coroutines complex", wait_for_threads_to_join,
 		[&handles]()
 		{
 			for (auto& handle : handles)
