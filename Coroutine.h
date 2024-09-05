@@ -11,7 +11,7 @@ namespace Coroutine
 		void do_deallocate(void* p);
 	}
 
-#define COROUTINE_CUSTOM_ALLOC 0  
+#define COROUTINE_CUSTOM_ALLOC 1
 
 	template <typename Return = void, typename Yield = void>
 	class TPromise : public TPromiseYield<Return, Yield>

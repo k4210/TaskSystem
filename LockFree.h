@@ -119,9 +119,8 @@ namespace LockFree
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
-			Node& node = *state.head;
-			node.next_ = nullptr;
-			return &node;
+			state.head->next_ = nullptr;
+			return state.head;
 		}
 
 	private:

@@ -2,6 +2,7 @@
 
 #include "LockFree.h"
 #include <cstdlib>
+#include <iostream>
 
 struct BlockHeader
 {
@@ -31,7 +32,7 @@ static_assert(sizeof(BlockHeader) <= BlockHeader::allocation_offset);
 
 struct MemoryBlocksCollection
 {
-	BlockHeader& allocate(std::size_t size_with_header)
+	BlockHeader& allocate()
 	{
 		BlockHeader* block = free_.Pop();
 		if (!block)
@@ -39,8 +40,8 @@ struct MemoryBlocksCollection
 			void* ptr = std::malloc(block_size_);
 			assert(ptr);
 			block = new (ptr) BlockHeader{};
+			counter_++;
 		}
-		block->size_ = size_with_header;
 		return *block;
 	}
 
@@ -62,12 +63,16 @@ struct MemoryBlocksCollection
 			std::destroy_at(block);
 			std::free(block);
 		}
+		std::cout << "Simple allocator " << block_size_ << " max usage: " << counter_.load() << std::endl;
 	}
 
 	const std::size_t block_size_; //including header
 
 private:
 	LockFree::PointerBasedStack<BlockHeader> free_;
+
+	std::atomic<uint32> counter_ = 0;
+
 };
 
 class SimpleAllocator
@@ -82,35 +87,35 @@ public:
 			{
 				if (size_with_header <= collection.block_size_)
 				{
-					return collection.allocate(size_with_header);
+					return collection.allocate();
 				}
 			}
 
 			uint8* external_allocation = reinterpret_cast<uint8*>(std::malloc(size_with_header));
 			assert(external_allocation);
 			BlockHeader* block = new (external_allocation) BlockHeader{};
-			block->size_ = size_with_header;
 			return *block;
 		}();
+		block.size_ = size_with_header;
 		return block.GetMemory();
 	}
 
 	void deallocate(uint8* ptr)
 	{
 		assert(ptr);
-		BlockHeader* header = BlockHeader::FromMemoryPointer(ptr);
-		assert(header);
-		const std::size_t size_with_header = header->size_;
+		BlockHeader* block = BlockHeader::FromMemoryPointer(ptr);
+		assert(block);
+		const std::size_t size_with_header = block->size_;
 
 		for (MemoryBlocksCollection& collection : block_collections)
 		{
 			if (size_with_header <= collection.block_size_)
 			{
-				return collection.deallocate(*header);
+				return collection.deallocate(*block);
 			}
 		}
 
-		std::destroy_at(header);
+		std::destroy_at(block);
 		std::free(ptr);
 	}
 

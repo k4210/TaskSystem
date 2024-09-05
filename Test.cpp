@@ -62,18 +62,33 @@ int main()
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
 
-	constexpr uint32 outer_loop = 64;
-	constexpr uint32 inner_loop = 256;
-	//const uint32 num_per_body = 4;
-	const bool wait_for_threads_to_join = true;
-	/*
+	auto StartTaskSystem = []()
+		{
+			//TaskSystem::ResetGlobals();
+			TaskSystem::StartWorkerThreads();
+
+			std::this_thread::sleep_for(4ms); // let worker threads start
+		};
+
+	auto StopTaskSystem = []()
+		{
+			TaskSystem::StopWorkerThreads();
+			TaskSystem::WaitForWorkerThreadsToJoin();
+		};
+
 	PerformTest([&](uint32)
 		{
 			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
 			A->Then(LambdaEmpty, "b");
 			A->Then(LambdaEmpty, "c");
 			A->Then(LambdaEmpty, "d");
-		}, inner_loop, outer_loop, num_per_body, "A->Then");
+		}, TestDetails
+		{
+			.num_per_body = 4,
+			.name = "Then test",
+			.excluded_initialization = StartTaskSystem,
+			.excluded_cleanup = StopTaskSystem
+		});
 
 	PerformTest([&](uint32)
 		{
@@ -83,7 +98,13 @@ int main()
 
 			BaseTask* Arr[]{ A, B, C };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
-		}, inner_loop, outer_loop, num_per_body, "InitializeTask");
+		}, TestDetails
+		{
+			.num_per_body = 4,
+			.name = "InitializeTask test",
+			.excluded_initialization = StartTaskSystem,
+			.excluded_cleanup = StopTaskSystem
+		});
 
 	PerformTest([&](uint32)
 		{
@@ -93,18 +114,30 @@ int main()
 
 			BaseTask* Arr[]{ A, B, C };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
-		}, inner_loop, outer_loop, num_per_body, "Execute epmty tasks", wait_for_threads_to_join);
-		*/
-	std::array<TUniqueCoroutine<int32>, 4 * inner_loop> handles;
+		}, TestDetails
+		{
+			.num_per_body = 4,
+			.name = "Execute empty test",
+			.excluded_initialization = StartTaskSystem,
+			.included_cleanup = StopTaskSystem
+		});
+
+	std::array<TUniqueCoroutine<int32>, 1024> handles;
 	PerformTest([&handles](uint32 idx)
 		{
 			handles[idx] = CoroutineTest();
-		}, 4 * inner_loop, 16 * outer_loop, 1, "Coroutines complex", wait_for_threads_to_join,
-		[&handles]()
+		}, TestDetails
 		{
-			for (auto& handle : handles)
+			.inner_num = 1024,
+			.name = "Coroutines complex",
+			.excluded_initialization = StartTaskSystem,
+			.included_cleanup = StopTaskSystem,
+			.excluded_cleanup = [&handles]()
 			{
-				handle = {};
+				for (auto& handle : handles)
+				{
+					handle = {};
+				}
 			}
 		});
 
