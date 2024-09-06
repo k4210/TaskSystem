@@ -1,105 +1,40 @@
 #pragma once
 
-#include <functional>
+#include "TaskBaseTypes.h"
 #include <array>
-#include <span>
-#include "RefCount.h"
-#include "RefCountPoolPtr.h"
-#include "LockFree.h"
-#include "Pool.h"
-#include "AnyValue.h"
 #include <optional>
 #include <type_traits>
+#include <span>
 
-struct DependencyNode;
-template<typename T> class Task;
-
-enum class ETaskFlags : uint8
-{
-	None = 0,
-	TryExecuteImmediate = 1
-};
-
-enum class ETaskState : uint8
-{
-#if !defined(NDEBUG)
-	Nonexistent_Pooled,
-#endif
-	PendingOrExecuting,
-	Done,
-	DoneUnconsumedResult,
-};
-
-class BaseTask : public TRefCounted<BaseTask>
+template<typename T, typename DerivedType>
+class CommonSpecialization
 {
 public:
-	BaseTask();
-
-	static std::span<BaseTask> GetPoolSpan();
-
-	bool IsPendingOrExecuting() const;
-
-	uint16 GetNumberOfPendingPrerequires() const;
-
-	template<typename F>
-	auto Then(F function, const char* debug_name = nullptr) -> TRefCountPtr<Task<decltype(function())>>
-	{
-		BaseTask* pre_req[] = { this };
-		return TaskSystem::InitializeTask(std::move(function), pre_req, debug_name);
-	}
-#pragma region protected
-protected:
-
-	void Execute();
-#if !defined(NDEBUG)
-	void OnReturnToPool();
-#endif
-	void OnRefCountZero();
-
-	void OnPrerequireDone();
-
-	std::atomic<uint16> prerequires_ = 0;
-	LockFree::Index next_ = LockFree::kInvalidIndex;
-	LockFree::Collection<DependencyNode, ETaskState> depending_;
-
-	std::function<void(BaseTask&)> function_;
-	AnyValue<6 * sizeof(uint8*)> result_;
-	const char* debug_name_ = nullptr;
-
-	friend LockFree::Stack<BaseTask>;
-	template<typename Node, std::size_t Size> friend struct Pool;
-	friend TRefCounted<BaseTask>;
-	friend class TaskSystem;
-#pragma endregion
-};
-
-template<typename T = void>
-class Task : public BaseTask
-{
-public:
-
 	// Either ShareResult or DropResult should be used, no both!
 	T DropResult()
 	{
-		const ETaskState old_state = depending_.SetFastOnEmpty(ETaskState::Done);
+		DerivedType* common = static_cast<DerivedType*>(this);
+		const ETaskState old_state = common->gate_.ResetStateOnEmpty(ETaskState::Done);
 		assert(old_state == ETaskState::DoneUnconsumedResult);
-		T result = result_.GetOnce<T>();
-		result_.Reset();
+		T result = common->result_.GetOnce<T>();
+		common->result_.Reset();
 		return result;
 	}
 
 	const T& ShareResult() const
 	{
-		assert(depending_.GetGateState() == ETaskState::DoneUnconsumedResult);
-		return result_.Get<T>();
+		const DerivedType* common = static_cast<const DerivedType*>(this);
+		assert(common->gate_.GetState() == ETaskState::DoneUnconsumedResult);
+		return common->result_.Get<T>();
 	}
 
 	template<typename F>
 	auto ThenRead(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
 	{
-		BaseTask* pre_req[] = { this };
+		DerivedType* common = static_cast<DerivedType*>(this);
+		Gate* pre_req[] = { common->GetGate() };
 		using ResultType = decltype(function(T{}));
-		auto lambda = [source = TRefCountPtr<Task<T>>(this), function = std::move(function)]() -> ResultType
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::move(function)]() -> ResultType
 			{
 				if constexpr (std::is_void_v<ResultType>)
 				{
@@ -117,12 +52,13 @@ public:
 	template<typename F>
 	auto ThenConsume(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
 	{
-		BaseTask* pre_req[] = { this };
+		DerivedType* common = static_cast<DerivedType*>(this);
+		Gate* pre_req[] = { common->GetGate() };
 		using ResultType = decltype(function(T{}));
-		auto lambda = [source = TRefCountPtr<Task<T>>(this), function = std::move(function)]() -> ResultType
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::move(function)]() -> ResultType
 			{
 				T value = source->DropResult();
-				source = nullptr;
+				//source = nullptr; TODO
 				if constexpr (std::is_void_v<ResultType>)
 				{
 					function(value);
@@ -137,11 +73,13 @@ public:
 	}
 };
 
+template<typename T = void>
+class Task : public BaseTask, public CommonSpecialization<T, Task<T>>
+{};
+
 template<>
 class Task<void> : public BaseTask
-{
-
-};
+{};
 
 class TaskSystem
 {
@@ -157,7 +95,7 @@ public:
 	static bool ExecuteATask();
 
 	template<typename F>
-	static auto InitializeTask(F function, std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None)
+	static auto InitializeTask(F function, std::span<Gate*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None)
 		-> TRefCountPtr<Task<decltype(function())>>
 	{
 		using ResultType = decltype(function());
@@ -179,12 +117,11 @@ public:
 	}
 #pragma region private
 private:
-	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function, 
-		std::span<BaseTask*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None);
+	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function,
+		std::span<Gate*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None);
 
 	static void OnReadyToExecute(BaseTask&);
 
 	friend class BaseTask;
 #pragma endregion
 };
-

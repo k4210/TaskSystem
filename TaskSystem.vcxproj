@@ -144,6 +144,7 @@
     <ClInclude Include="SimpleAllocator.h" />
     <ClInclude Include="Task.h" />
     <ClInclude Include="RefCountPoolPtr.h" />
+    <ClInclude Include="TaskBaseTypes.h" />
     <ClInclude Include="Test.h" />
   </ItemGroup>
   <ItemGroup>

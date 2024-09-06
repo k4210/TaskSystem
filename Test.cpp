@@ -52,9 +52,21 @@ int main()
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
 
+	auto LambdaProduce = []() -> std::string
+		{
+			counter.fetch_add(1, std::memory_order_relaxed);
+			return "yada hey";
+		};
+
 	auto LambdaRead = [](const std::string&) -> void
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
+		};
+
+	auto LambdaReadPass = [](const std::string& str) -> std::string
+		{
+			counter.fetch_add(1, std::memory_order_relaxed);
+			return str;
 		};
 
 	auto LambdaConsume = [](std::string) -> void
@@ -96,7 +108,7 @@ int main()
 			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
 			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
 
-			BaseTask* Arr[]{ A, B, C };
+			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
 		}, TestDetails
 		{
@@ -112,7 +124,7 @@ int main()
 			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
 			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
 
-			BaseTask* Arr[]{ A, B, C };
+			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
 		}, TestDetails
 		{
@@ -121,6 +133,20 @@ int main()
 			.excluded_initialization = StartTaskSystem,
 			.included_cleanup = StopTaskSystem
 		});
+
+		PerformTest([&](uint32)
+			{
+				TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce, {}, "a");
+				A->ThenRead(LambdaRead, "b");
+				TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass, "c");
+				C->ThenConsume(LambdaConsume, "d");
+			}, TestDetails
+			{
+				.num_per_body = 4,
+				.name = "Read and consume test",
+				.excluded_initialization = StartTaskSystem,
+				.included_cleanup = StopTaskSystem
+			});
 
 	std::array<TUniqueCoroutine<int32>, 1024> handles;
 	PerformTest([&handles](uint32 idx)

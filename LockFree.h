@@ -148,14 +148,14 @@ namespace LockFree
 			: state_(State{ .gate = gate })
 		{}
 
-		State GetState() const
-		{
-			return state_.load(std::memory_order_relaxed);
-		}
-
 		Gate GetGateState() const
 		{
 			return GetState().gate;
+		}
+
+		bool IsEmpty() const
+		{
+			return GetState().head == kInvalidIndex;
 		}
 
 		// Returns old gate
@@ -202,6 +202,11 @@ namespace LockFree
 		}
 
 	private:
+		State GetState() const
+		{
+			return state_.load(std::memory_order_relaxed);
+		}
+
 		std::atomic<State> state_;
 	};
 
