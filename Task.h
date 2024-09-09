@@ -5,11 +5,14 @@
 #include <optional>
 #include <type_traits>
 #include <span>
+#include <concepts>
 
 template<typename T, typename DerivedType>
 class CommonSpecialization
 {
 public:
+	using ReturnType = T;
+
 	// Either ShareResult or DropResult should be used, no both!
 	T DropResult()
 	{
@@ -29,12 +32,12 @@ public:
 	}
 
 	template<typename F>
-	auto ThenRead(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
+	auto ThenRead(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
 	{
 		DerivedType* common = static_cast<DerivedType*>(this);
 		Gate* pre_req[] = { common->GetGate() };
 		using ResultType = decltype(function(T{}));
-		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::move(function)]() -> ResultType
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() -> ResultType
 			{
 				if constexpr (std::is_void_v<ResultType>)
 				{
@@ -46,30 +49,30 @@ public:
 					return function(source->ShareResult());
 				}
 			};
-		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name, flags);
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, flags LOCATION_PASS);
 	}
 
 	template<typename F>
-	auto ThenConsume(F function, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None) -> TRefCountPtr < Task<decltype(function(T{})) >>
+	auto ThenConsume(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
 	{
 		DerivedType* common = static_cast<DerivedType*>(this);
 		Gate* pre_req[] = { common->GetGate() };
 		using ResultType = decltype(function(T{}));
-		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::move(function)]() -> ResultType
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() mutable -> ResultType
 			{
 				T value = source->DropResult();
-				//source = nullptr; TODO
+				source = nullptr;
 				if constexpr (std::is_void_v<ResultType>)
 				{
-					function(value);
+					function(std::move(value));
 					return;
 				}
 				else
 				{
-					return function(value);
+					return function(std::move(value));
 				}
 			};
-		return TaskSystem::InitializeTask(std::move(lambda), pre_req, debug_name, flags);
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, flags LOCATION_PASS);
 	}
 };
 
@@ -94,34 +97,57 @@ public:
 
 	static bool ExecuteATask();
 
-	template<typename F>
-	static auto InitializeTask(F function, std::span<Gate*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None)
-		-> TRefCountPtr<Task<decltype(function())>>
+	static auto InitializeTask(std::invocable auto&& function, std::span<Gate*> prerequiers = {}, ETaskFlags flags = ETaskFlags::None
+		LOCATION_PARAM)
 	{
-		using ResultType = decltype(function());
+		using ResultType = decltype(std::invoke(function));
 		static_assert(sizeof(Task<ResultType>) == sizeof(BaseTask));
 		if constexpr (std::is_void_v<ResultType>)
 		{
-			return InitializeTaskInner([function = std::move(function)](BaseTask&)
+			return InitializeTaskInner([function = function](BaseTask&) mutable
 				{
-					function();
-				}, prerequiers, debug_name, flags).Cast<Task<ResultType>>();
+					std::invoke(function);
+				}, prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
 		}
 		else
 		{
-			return InitializeTaskInner([function = std::move(function)](BaseTask& task)
+			return InitializeTaskInner([function = function](BaseTask& task) mutable
 				{
-					task.result_.Store(function());
-				}, prerequiers, debug_name, flags).Cast<Task<ResultType>>();
+					task.result_.Store(std::invoke(function));
+				}, prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
 		}
 	}
 #pragma region private
 private:
 	static TRefCountPtr<BaseTask> InitializeTaskInner(std::function<void(BaseTask&)> function,
-		std::span<Gate*> prerequiers = {}, const char* debug_name = nullptr, ETaskFlags flags = ETaskFlags::None);
+		std::span<Gate*> prerequiers = {}, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM);
 
 	static void OnReadyToExecute(BaseTask&);
 
 	friend class BaseTask;
 #pragma endregion
+};
+
+template<typename T = void>
+class Future : GenericFuture, public CommonSpecialization<T, Future<T>>
+{
+public:
+	void Done(T&& val)
+	{
+		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
+		assert(!result_.HasValue());
+		result_.Store(std::forward<T>(val));
+		gate_.Done(ETaskState::DoneUnconsumedResult);
+	}
+};
+
+template<>
+class Future<void> : public GenericFuture
+{
+	void Done()
+	{
+		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
+		assert(!result_.HasValue());
+		gate_.Done(ETaskState::Done);
+	}
 };

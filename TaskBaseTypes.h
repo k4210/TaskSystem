@@ -69,10 +69,10 @@ public:
 	bool AddDependencyInner(DependencyNode& node, ETaskState required_state);
 
 	template<typename F>
-	auto Then(F function, const char* debug_name = nullptr) -> TRefCountPtr<Task<decltype(function())>>
+	auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Task<decltype(function())>>
 	{
 		Gate* pre_req[] = { this };
-		return TaskSystem::InitializeTask(std::move(function), pre_req, debug_name);
+		return TaskSystem::InitializeTask(std::move(function), pre_req, flags LOCATION_PASS);
 	}
 
 protected:
@@ -90,9 +90,9 @@ public:
 	}
 
 	template<typename F>
-	auto Then(F function, const char* debug_name = nullptr) -> TRefCountPtr<Task<decltype(function())>>
+	auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Task<decltype(function())>>
 	{
-		return gate_.Then(std::move(function), debug_name);
+		return gate_.Then(std::move(function), flags LOCATION_PASS);
 	}
 
 	Gate* GetGate()
@@ -164,7 +164,7 @@ protected:
 	std::atomic<uint16> prerequires_ = 0;
 
 	std::function<void(BaseTask&)> function_;
-	const char* debug_name_ = nullptr;
+	DEBUG_CODE(std::source_location source;)
 
 	friend TRefCounted<BaseTask>;
 	friend class TaskSystem;

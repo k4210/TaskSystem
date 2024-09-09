@@ -1,6 +1,19 @@
 #pragma once
 
 #include <type_traits>
+#include <source_location>
+
+#ifdef NDEBUG
+#define DEBUG_CODE(x)
+#define USE_DEBUG_CODE 0
+#define LOCATION_PARAM
+#define LOCATION_PASS
+#else
+#define DEBUG_CODE(x) x
+#define USE_DEBUG_CODE 1
+#define LOCATION_PARAM , std::source_location location = std::source_location::current()
+#define LOCATION_PASS , location
+#endif // NDEBUG
 
 using uint8 = unsigned __int8;
 using uint16 = unsigned __int16;

@@ -143,7 +143,17 @@ public:
 		}
 		return *this;
 	}
-
+	/*
+	TRefCountPtr& operator=(std::nullptr_t)
+	{
+		if (Reference)
+		{
+			Reference->Release();
+			Reference = nullptr;
+		}
+		return *this;
+	}
+	*/
 	TRefCountPtr& operator=(const TRefCountPtr InPtr)
 	{
 		return *this = InPtr.Get();

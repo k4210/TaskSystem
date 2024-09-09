@@ -199,10 +199,14 @@ std::span<BaseTask> BaseTask::GetPoolSpan()
 	return globals.task_pool_.GetPoolSpan();
 }
 
-TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<Gate*> prerequiers, const char* debug_name, ETaskFlags flags)
+TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<Gate*> prerequiers, ETaskFlags flags
+#if USE_DEBUG_CODE
+	, std::source_location location
+#endif
+	)
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
-	task->debug_name_ = debug_name;
+	DEBUG_CODE(task->source = location;)
 	task->function_ = std::move(function);
 	assert(task->gate_.IsEmpty());
 	const ETaskState old_state = task->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);

@@ -40,7 +40,7 @@ struct MemoryBlocksCollection
 			void* ptr = std::malloc(block_size_);
 			assert(ptr);
 			block = new (ptr) BlockHeader{};
-			counter_++;
+			DEBUG_CODE(counter_++;)
 		}
 		return *block;
 	}
@@ -63,7 +63,7 @@ struct MemoryBlocksCollection
 			std::destroy_at(block);
 			std::free(block);
 		}
-		std::cout << "Simple allocator " << block_size_ << " max usage: " << counter_.load() << std::endl;
+		DEBUG_CODE(std::cout << "Simple allocator " << block_size_ << " max usage: " << counter_.load() << std::endl;)
 	}
 
 	const std::size_t block_size_; //including header
@@ -71,7 +71,7 @@ struct MemoryBlocksCollection
 private:
 	LockFree::PointerBasedStack<BlockHeader> free_;
 
-	std::atomic<uint32> counter_ = 0;
+	DEBUG_CODE(std::atomic<uint32> counter_ = 0;)
 
 };
 

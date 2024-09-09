@@ -94,7 +94,7 @@ namespace Coroutine
 		{
 			return InAwaiter;
 		}
-
+/*
 		template <typename ReturnType>
 		auto await_transform(TRefCountPtr<Task<ReturnType>>&& InTask)
 		{
@@ -114,7 +114,7 @@ namespace Coroutine
 						{
 							handle.resume();
 						};
-					inner_task_->Then(resume_coroutine, "resume_coroutine");
+					inner_task_->Then(resume_coroutine);
 				}
 				auto await_resume()
 				{
@@ -128,6 +128,41 @@ namespace Coroutine
 				}
 			};
 			return TTaskAwaiter{std::forward<AsyncTask>(InTask)};
+		}
+*/
+		template <typename SpecializedType, typename ReturnType = SpecializedType::ReturnType>
+		auto await_transform(TRefCountPtr<SpecializedType>&& InTask)
+		{
+			using AsyncTask = TRefCountPtr<SpecializedType>;
+			struct TTaskAwaiter
+			{
+				AsyncTask inner_task_;
+
+				bool await_ready()
+				{
+					return !inner_task_->IsPendingOrExecuting();
+				}
+				void await_suspend(std::coroutine_handle<> handle)
+				{
+					assert(handle);
+					auto resume_coroutine = [handle]()
+						{
+							handle.resume();
+						};
+					inner_task_->Then(resume_coroutine);
+				}
+				auto await_resume()
+				{
+					assert(!inner_task_->IsPendingOrExecuting());
+					AsyncTask moved_task = std::move(inner_task_);
+					inner_task_ = nullptr;
+					if constexpr (!std::is_void_v<ReturnType>)
+					{
+						return moved_task->DropResult();
+					}
+				}
+			};
+			return TTaskAwaiter{ std::forward<AsyncTask>(InTask) };
 		}
 
 		template <typename OtherPromise>

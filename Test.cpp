@@ -20,7 +20,7 @@ TUniqueCoroutine<int32> InnerCoroutine()
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 3;
-		}, {}, "task in inner coroutine");
+		}, {});
 	co_return val;
 }
 
@@ -30,13 +30,13 @@ TUniqueCoroutine<int32> CoroutineTest()
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 1;
-		}, {}, "task 1 in coroutine");
+		}, {});
 
 	int32 val2 = co_await TaskSystem::InitializeTask([]() -> int32
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 2;
-		}, {}, "task 2 in coroutine");
+		}, {});
 
 	int32 val1 = co_await std::move(async_task);
 
@@ -90,10 +90,10 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
-			A->Then(LambdaEmpty, "b");
-			A->Then(LambdaEmpty, "c");
-			A->Then(LambdaEmpty, "d");
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
+			A->Then(LambdaEmpty);
+			A->Then(LambdaEmpty);
+			A->Then(LambdaEmpty);
 		}, TestDetails
 		{
 			.num_per_body = 4,
@@ -104,12 +104,12 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {});
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
-			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
+			TaskSystem::InitializeTask(LambdaEmpty, Arr);
 		}, TestDetails
 		{
 			.num_per_body = 4,
@@ -120,12 +120,12 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {}, "a");
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {}, "b");
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {}, "c");
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {});
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
-			TaskSystem::InitializeTask(LambdaEmpty, Arr, "d");
+			TaskSystem::InitializeTask(LambdaEmpty, Arr);
 		}, TestDetails
 		{
 			.num_per_body = 4,
@@ -136,10 +136,10 @@ int main()
 
 		PerformTest([&](uint32)
 			{
-				TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce, {}, "a");
-				A->ThenRead(LambdaRead, "b");
-				TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass, "c");
-				C->ThenConsume(LambdaConsume, "d");
+				TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce, {});
+				A->ThenRead(LambdaRead);
+				TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass);
+				C->ThenConsume(LambdaConsume);
 			}, TestDetails
 			{
 				.num_per_body = 4,
@@ -147,7 +147,7 @@ int main()
 				.excluded_initialization = StartTaskSystem,
 				.included_cleanup = StopTaskSystem
 			});
-
+	
 	std::array<TUniqueCoroutine<int32>, 1024> handles;
 	PerformTest([&handles](uint32 idx)
 		{
