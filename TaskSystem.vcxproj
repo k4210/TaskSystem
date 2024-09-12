@@ -134,9 +134,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AnyValue.h" />
-    <ClInclude Include="BaseTypes.h" />
+    <ClInclude Include="Common.h" />
     <ClInclude Include="Coroutine.h" />
-    <ClInclude Include="CoroutineBase.h" />
+    <ClInclude Include="CoroutineHandle.h" />
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
     <ClInclude Include="Profiling.h" />
@@ -144,11 +144,11 @@
     <ClInclude Include="SimpleAllocator.h" />
     <ClInclude Include="Task.h" />
     <ClInclude Include="RefCountPoolPtr.h" />
-    <ClInclude Include="TaskBaseTypes.h" />
+    <ClInclude Include="BaseTask.h" />
     <ClInclude Include="Test.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BaseTask.cpp" />
+    <ClCompile Include="Task.cpp" />
     <ClCompile Include="Coroutine.cpp" />
     <ClCompile Include="Test.cpp" />
   </ItemGroup>

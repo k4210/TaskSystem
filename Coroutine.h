@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoroutineBase.h"
+#include "CoroutineHandle.h"
 #include "Task.h"
 
 namespace Coroutine
@@ -9,7 +9,83 @@ namespace Coroutine
 	{
 		void* do_allocate(std::size_t bytes);
 		void do_deallocate(void* p);
+		enum class EInnerState : uint8 { Unfinished, Done };
 	}
+
+	template <typename Return>
+	class TPromiseReturn
+	{
+	public:
+		using ReturnType = Return;
+
+		void return_value(const Return& InValue)
+		{
+			ValueReturn = InValue;
+		}
+		void return_value(Return&& InValue)
+		{
+			ValueReturn = std::forward<Return>(InValue);
+		}
+		void return_value(std::optional<Return>&& InValue)
+		{
+			ValueReturn = std::forward<std::optional<Return>>(InValue);
+		}
+
+		bool HasReturnValue() const
+		{
+			return !!ValueReturn;
+		}
+
+		std::optional<Return> Consume()
+		{
+			std::optional<Return> result = std::move(ValueReturn);
+			ValueReturn.reset();
+			return result;
+		}
+	protected:
+		std::optional<Return> ValueReturn;
+	};
+
+	template <>
+	class TPromiseReturn<void>
+	{
+	public:
+		using ReturnType = void;
+		void return_void() {}
+	};
+
+	template <typename Return, typename Yield>
+	class TPromiseYield : public TPromiseReturn<Return>
+	{
+	public:
+		using YieldType = Yield;
+
+		std::suspend_always yield_value(const Yield& InValue)
+		{
+			ValueYield = InValue;
+			return {};
+		}
+		std::suspend_always yield_value(Yield&& InValue)
+		{
+			ValueYield = std::forward<Yield>(InValue);
+			return {};
+		}
+		std::optional<Yield> ConsumeYield()
+		{
+			std::optional<Yield> result = std::move(ValueYield);
+			ValueYield.reset();
+			return result;
+		}
+	protected:
+		std::optional<Yield> ValueYield;
+	};
+
+	template <typename Return>
+	class TPromiseYield<Return, void> : public TPromiseReturn<Return>
+	{
+	public:
+		using YieldType = void;
+	};
 
 #define COROUTINE_CUSTOM_ALLOC 1
 
@@ -43,20 +119,14 @@ namespace Coroutine
 		}
 #endif //COROUTINE_CUSTOM_ALLOC
 
-		EStatus Status() const
-		{
-			const HandleType handle = const_cast<TPromise*>(this)->GetHandle();
-			return handle.done() ? EStatus::Done : EStatus::Unfinished;
-		}
-
 		auto get_return_object()
 		{
 			return TaskType(GetHandle());
 		}
 
-		auto initial_suspend() { return FSuspendNever{}; }
+		auto initial_suspend() { return std::suspend_never{}; }
 
-		void unhandled_exception() {}
+		void unhandled_exception() { assert(false); }
 
 		auto final_suspend() noexcept
 		{
@@ -66,7 +136,7 @@ namespace Coroutine
 
 				auto await_suspend(HandleType handle) noexcept
 				{
-					std::coroutine_handle<>& continuation = handle.promise().continuation_;
+					std::coroutine_handle<> continuation = handle.promise().continuation_.Close(detail::EInnerState::Done, std::coroutine_handle<>{});
 					if (continuation)
 					{
 						continuation.resume();
@@ -85,51 +155,16 @@ namespace Coroutine
 			return FFinalAwaiter{};
 		}
 
-		auto await_transform(FSuspendNever InAwaiter)
+		auto await_transform(std::suspend_never InAwaiter)
 		{
 			return InAwaiter;
 		}
 
-		auto await_transform(FSuspendAlways InAwaiter)
+		auto await_transform(std::suspend_always InAwaiter)
 		{
 			return InAwaiter;
 		}
-/*
-		template <typename ReturnType>
-		auto await_transform(TRefCountPtr<Task<ReturnType>>&& InTask)
-		{
-			using AsyncTask = TRefCountPtr<Task<ReturnType>>;
-			struct TTaskAwaiter
-			{
-				AsyncTask inner_task_;
 
-				bool await_ready()
-				{
-					return !inner_task_->IsPendingOrExecuting();
-				}
-				void await_suspend(std::coroutine_handle<> handle)
-				{
-					assert(handle);
-					auto resume_coroutine = [handle]()
-						{
-							handle.resume();
-						};
-					inner_task_->Then(resume_coroutine);
-				}
-				auto await_resume()
-				{
-					assert(!inner_task_->IsPendingOrExecuting());
-					AsyncTask moved_task = std::move(inner_task_);
-					inner_task_ = nullptr;
-					if constexpr (!std::is_void_v<ReturnType>)
-					{
-						return moved_task->DropResult();
-					}
-				}
-			};
-			return TTaskAwaiter{std::forward<AsyncTask>(InTask)};
-		}
-*/
 		template <typename SpecializedType, typename ReturnType = SpecializedType::ReturnType>
 		auto await_transform(TRefCountPtr<SpecializedType>&& InTask)
 		{
@@ -184,8 +219,12 @@ namespace Coroutine
 					assert(handle);
 					OtherPromise* promise = awaited_.GetPromise();
 					assert(promise);
-					assert(!promise->continuation_);
-					promise->continuation_ = handle;
+					assert(!promise->continuation_.Get().value_);
+					const bool passed = promise->continuation_.TrySet(detail::EInnerState::Unfinished, handle);
+					if (!passed)
+					{
+						handle.resume();
+					}
 				}
 
 				auto await_resume()
@@ -201,7 +240,8 @@ namespace Coroutine
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
 	protected:
-		std::coroutine_handle<> continuation_;
+		LockFree::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ = 
+			{ std::coroutine_handle<>{}, detail::EInnerState::Unfinished };
 	};
 }
 

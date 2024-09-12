@@ -6,7 +6,7 @@
 
 #include <assert.h>
 #include <array>
-#include "BaseTypes.h"
+#include "Common.h"
 
 namespace LockFree
 {
@@ -210,4 +210,47 @@ namespace LockFree
 		std::atomic<State> state_;
 	};
 
+	template<typename Value, typename Gate>
+	struct GatedValue
+	{
+		struct State
+		{
+			Value value_;
+			Gate gate_;
+		};
+
+		GatedValue(Value val, Gate gate)
+			: state_(State{ val, gate })
+		{}
+
+		bool TrySet(Gate required_open, Value new_value)
+		{
+			const State new_state{ new_value, required_open };
+			State state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				if (state.gate_ != required_open)
+				{
+					return false;
+				}
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			return true;
+		}
+
+		Value Close(Gate new_closed, Value new_empty)
+		{
+			const State old_state = state_.exchange(State{ new_empty, new_closed });
+			return old_state.value_;
+		}
+
+		State Get() const
+		{
+			return state_.load(std::memory_order_relaxed);
+		}
+
+	private:
+		std::atomic<State> state_;
+	};
 }

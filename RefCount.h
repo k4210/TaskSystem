@@ -2,7 +2,7 @@
 
 #include <atomic>
 #include <assert.h>
-#include "BaseTypes.h"
+#include "Common.h"
 
 template< typename DerivedType >
 struct TRefCounted

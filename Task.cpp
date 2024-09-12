@@ -39,6 +39,7 @@ struct TaskSystemGlobals
 	LockFree::Stack<BaseTask> ready_to_execute_;
 	std::array<std::thread, 16> threads_;
 	bool working_ = false;
+	std::atomic<uint8> used_threads_ = 0;
 };
 
 static TaskSystemGlobals globals;
@@ -65,23 +66,34 @@ void BaseTask::OnRefCountZero()
 	globals.task_pool_.Return(*this);
 }
 
-void TaskSystem::ResetGlobals()
-{
-	globals.~TaskSystemGlobals();
-	new (&globals) TaskSystemGlobals();
-}
-
 void TaskSystem::StartWorkerThreads()
 {
 	globals.working_ = true;
 
 	auto loop_body = []()
 	{
+		bool marked_as_used = false;
 		while (true)
 		{
-			const bool executed = ExecuteATask();
-			if(!executed)
+			BaseTask* task = globals.ready_to_execute_.Pop();
+			if (task)
 			{
+				if (!marked_as_used)
+				{
+					marked_as_used = true;
+					globals.used_threads_.fetch_add(1, std::memory_order_relaxed);
+				}
+				task->Execute();
+				task->Release();
+			}
+			else
+			{
+				if (marked_as_used)
+				{
+					marked_as_used = false;
+					globals.used_threads_.fetch_sub(1, std::memory_order_relaxed);
+				}
+
 				if (globals.working_) [[likely]]
 				{
 					std::this_thread::yield();
@@ -105,15 +117,25 @@ void TaskSystem::StopWorkerThreads()
 	globals.working_ = false;
 }
 
+void TaskSystem::WaitForAllTasks()
+{
+	while (globals.used_threads_)
+	{
+		std::this_thread::yield();
+	}
+}
+
 void TaskSystem::WaitForWorkerThreadsToJoin()
 {
 	for (std::thread& thread : globals.threads_)
 	{
 		thread.join();
 	}
+	assert(!globals.ready_to_execute_.Pop());
 #if DO_POOL_STATS
-	std::cout << "Max used tasks: "  << globals.task_pool_.GetMaxUsedNum() << std::endl;
-	std::cout << "Max used dependency nodes: "<< globals.dependency_pool_.GetMaxUsedNum() << std::endl;
+	assert(!globals.task_pool_.GetUsedNum());
+	//std::cout << "Max used tasks: "  << globals.task_pool_.GetMaxUsedNum() << std::endl;
+	//std::cout << "Max used dependency nodes: "<< globals.dependency_pool_.GetMaxUsedNum() << std::endl;
 #endif
 }
 
@@ -197,6 +219,15 @@ void TaskSystem::OnReadyToExecute(BaseTask& task)
 std::span<BaseTask> BaseTask::GetPoolSpan()
 {
 	return globals.task_pool_.GetPoolSpan();
+}
+
+TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
+{
+	TRefCountPtr<GenericFuture> future = globals.future_pool_.Acquire();
+	assert(future->gate_.IsEmpty());
+	const ETaskState old_state = future->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);
+	assert(old_state == ETaskState::Nonexistent_Pooled);
+	return future;
 }
 
 TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<Gate*> prerequiers, ETaskFlags flags

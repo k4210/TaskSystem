@@ -18,7 +18,7 @@
     <ClInclude Include="RefCount.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BaseTypes.h">
+    <ClInclude Include="Common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="LockFree.h">
@@ -36,7 +36,7 @@
     <ClInclude Include="AnyValue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CoroutineBase.h">
+    <ClInclude Include="CoroutineHandle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Coroutine.h">
@@ -51,12 +51,12 @@
     <ClInclude Include="SimpleAllocator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TaskBaseTypes.h">
+    <ClInclude Include="BaseTask.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BaseTask.cpp">
+    <ClCompile Include="Task.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Test.cpp">

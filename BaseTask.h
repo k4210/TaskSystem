@@ -104,19 +104,20 @@ protected:
 
 	void OnDestroy()
 	{
+		assert(gate_.IsEmpty());
 		const ETaskState state = gate_.GetState();
 		assert(state != ETaskState::Nonexistent_Pooled);
 		if (state == ETaskState::DoneUnconsumedResult)
 		{
 			// RefCount is zero, so no other thread has access to the task
 			result_.Reset();
+			
+		}
+		assert(!result_.HasValue());
+		if(state != ETaskState::Done)
+		{
 			gate_.ResetStateOnEmpty(ETaskState::Done);
 		}
-		else
-		{
-			assert(state == ETaskState::Done);
-		}
-		assert(gate_.IsEmpty());
 	}
 
 #if !defined(NDEBUG)
@@ -131,6 +132,7 @@ protected:
 	Gate gate_;
 	AnyValue<6 * sizeof(uint8*)> result_;
 
+	friend class TaskSystem;
 	template<typename Node> friend struct LockFree::Stack;
 	template<typename Node, std::size_t Size> friend struct Pool;
 	template<typename T, typename DerivedType> friend class CommonSpecialization;
@@ -142,6 +144,7 @@ public:
 	static std::span<GenericFuture> GetPoolSpan();
 
 protected:
+	friend TRefCounted<GenericFuture>;
 	void OnRefCountZero();
 };
 

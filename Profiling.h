@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <iostream>
-#include "BaseTypes.h"
+#include "Common.h"
 
 using TimeSpan = std::chrono::nanoseconds;
 inline auto GetTime() { return std::chrono::high_resolution_clock::now(); }

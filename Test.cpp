@@ -14,33 +14,31 @@ using namespace std::chrono_literals;
 
 std::atomic_int32_t counter = 0;
 
-TUniqueCoroutine<int32> InnerCoroutine()
-{
-	int32 val = co_await TaskSystem::InitializeTask([]() -> int32
-		{
-			counter.fetch_add(1, std::memory_order_relaxed);
-			return 3;
-		}, {});
-	co_return val;
-}
-
 TUniqueCoroutine<int32> CoroutineTest()
 {
 	TRefCountPtr<Task<int32>> async_task = TaskSystem::InitializeTask([]() -> int32
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 1;
-		}, {});
+		});
 
 	int32 val2 = co_await TaskSystem::InitializeTask([]() -> int32
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 2;
-		}, {});
+		});
 
 	int32 val1 = co_await std::move(async_task);
 
-	int32 val3 = co_await InnerCoroutine();
+	int32 val3 = co_await []() ->TUniqueCoroutine<int32>
+	{
+		int32 val = co_await TaskSystem::InitializeTask([]() -> int32
+			{
+				counter.fetch_add(1, std::memory_order_relaxed);
+				return 3;
+			});
+		co_return val;
+	}();
 
 	co_return val1 + val2 + val3;
 };
@@ -74,23 +72,17 @@ int main()
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
 
-	auto StartTaskSystem = []()
+	auto WaitForTasks = []
 		{
-			//TaskSystem::ResetGlobals();
-			TaskSystem::StartWorkerThreads();
-
-			std::this_thread::sleep_for(4ms); // let worker threads start
+			TaskSystem::WaitForAllTasks();
 		};
 
-	auto StopTaskSystem = []()
-		{
-			TaskSystem::StopWorkerThreads();
-			TaskSystem::WaitForWorkerThreadsToJoin();
-		};
+	TaskSystem::StartWorkerThreads();
+	std::this_thread::sleep_for(4ms); // let worker threads start
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
 			A->Then(LambdaEmpty);
 			A->Then(LambdaEmpty);
 			A->Then(LambdaEmpty);
@@ -98,15 +90,14 @@ int main()
 		{
 			.num_per_body = 4,
 			.name = "Then test",
-			.excluded_initialization = StartTaskSystem,
-			.excluded_cleanup = StopTaskSystem
+			.excluded_cleanup = WaitForTasks
 		});
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {});
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
@@ -114,15 +105,14 @@ int main()
 		{
 			.num_per_body = 4,
 			.name = "InitializeTask test",
-			.excluded_initialization = StartTaskSystem,
-			.excluded_cleanup = StopTaskSystem
+			.excluded_cleanup = WaitForTasks
 		});
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty, {});
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty, {});
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty, {});
+			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
@@ -130,25 +120,31 @@ int main()
 		{
 			.num_per_body = 4,
 			.name = "Execute empty test",
-			.excluded_initialization = StartTaskSystem,
-			.included_cleanup = StopTaskSystem
+			.included_cleanup = WaitForTasks
 		});
 
-		PerformTest([&](uint32)
-			{
-				TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce, {});
-				A->ThenRead(LambdaRead);
-				TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass);
-				C->ThenConsume(LambdaConsume);
-			}, TestDetails
-			{
-				.num_per_body = 4,
-				.name = "Read and consume test",
-				.excluded_initialization = StartTaskSystem,
-				.included_cleanup = StopTaskSystem
-			});
+	PerformTest([&](uint32)
+		{
+			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce);
+			A->ThenRead(LambdaRead);
+			TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass);
+			C->ThenConsume(LambdaConsume);
+		}, TestDetails
+		{
+			.num_per_body = 4,
+			.name = "Read and consume test",
+			.included_cleanup = WaitForTasks
+		});
 	
 	std::array<TUniqueCoroutine<int32>, 1024> handles;
+	auto ResetHandles = [&handles]
+		{
+			for (auto& handle : handles)
+			{
+				handle = {};
+			}
+		};
+
 	PerformTest([&handles](uint32 idx)
 		{
 			handles[idx] = CoroutineTest();
@@ -156,16 +152,31 @@ int main()
 		{
 			.inner_num = 1024,
 			.name = "Coroutines complex",
-			.excluded_initialization = StartTaskSystem,
-			.included_cleanup = StopTaskSystem,
-			.excluded_cleanup = [&handles]()
-			{
-				for (auto& handle : handles)
-				{
-					handle = {};
-				}
-			}
+			.included_cleanup = WaitForTasks,
+			.excluded_cleanup = ResetHandles
 		});
+
+	PerformTest([&](uint32 idx)
+		{
+			TRefCountPtr<Future<int32>> future = TaskSystem::MakeFuture<int32>();
+			TRefCountPtr<Task<std::string>> task = future->Then(LambdaProduce);
+			handles[idx] = [](TRefCountPtr<Future<int32>> future) -> TUniqueCoroutine<int32>
+				{
+					const int32 value = co_await std::move(future);
+					assert(5 == value);
+					co_return value;
+				}(future);
+			future->Done(5);
+		}, TestDetails
+		{
+			.inner_num = 1024,
+			.name = "future",
+			.included_cleanup = WaitForTasks,
+			.excluded_cleanup = ResetHandles
+		});
+
+	TaskSystem::StopWorkerThreads();
+	TaskSystem::WaitForWorkerThreadsToJoin();
 
 	return 0;
 }

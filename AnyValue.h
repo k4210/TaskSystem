@@ -2,7 +2,7 @@
 
 #include <type_traits>
 #include <assert.h>
-#include "BaseTypes.h"
+#include "Common.h"
 
 // Eventually AnyValue could allocate external memory for big types. 
 template<uint32 Size>
