@@ -134,7 +134,7 @@ namespace Coroutine
 			{
 				bool await_ready() noexcept { return false; }
 
-				auto await_suspend(HandleType handle) noexcept
+				void await_suspend(HandleType handle) noexcept
 				{
 					std::coroutine_handle<> continuation = handle.promise().continuation_.Close(detail::EInnerState::Done, std::coroutine_handle<>{});
 					if (continuation)
@@ -144,8 +144,7 @@ namespace Coroutine
 						TaskSystem::InitializeTask([handle = continuation]()
 							{
 								handle.resume();
-							}, {}, "final suspend continuation");
-						continuation = std::coroutine_handle<>{};
+							});
 						*/
 					}
 				}
@@ -219,7 +218,6 @@ namespace Coroutine
 					assert(handle);
 					OtherPromise* promise = awaited_.GetPromise();
 					assert(promise);
-					assert(!promise->continuation_.Get().value_);
 					const bool passed = promise->continuation_.TrySet(detail::EInnerState::Unfinished, handle);
 					if (!passed)
 					{
@@ -239,11 +237,16 @@ namespace Coroutine
 			assert(in_coroutine.GetPromise());
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
+
+		bool IsDone() const
+		{
+			return continuation_.Get().gate_ == detail::EInnerState::Done;
+		}
 	protected:
 		LockFree::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ = 
 			{ std::coroutine_handle<>{}, detail::EInnerState::Unfinished };
 	};
 }
 
-template<typename ReturnType = void>
-using TUniqueCoroutine = Coroutine::TPromise<ReturnType>::TaskType;
+template<typename ReturnType = void, typename YieldType = void>
+using TUniqueCoroutine = Coroutine::TPromise<ReturnType, YieldType>::TaskType;

@@ -178,5 +178,27 @@ int main()
 	TaskSystem::StopWorkerThreads();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 
+	std::cout << "Generator test:\n";
+	TUniqueCoroutine<void, int32> generator = []() -> TUniqueCoroutine<void, int32>
+		{
+			int32 fn = 0;
+			co_yield fn;
+			int32 fn1 = 1;
+			co_yield fn1;
+			while (true)
+			{
+				const int32 result = fn + fn1;
+				fn = fn1;
+				fn1 = result;
+				co_yield result;
+			}
+		}();
+	for (int32 val = generator.ConsumeYield().value(); val < 10000; 
+		generator.TryResume(), val = generator.ConsumeYield().value())
+	{
+		std::cout << val << " ";
+	}
+	generator.Destroy();
+	std::cout << "\nGenerator test done\n";
 	return 0;
 }

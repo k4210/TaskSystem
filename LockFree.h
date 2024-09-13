@@ -210,6 +210,7 @@ namespace LockFree
 		std::atomic<State> state_;
 	};
 
+	// Allows to set value, only when gate is in open state
 	template<typename Value, typename Gate>
 	struct GatedValue
 	{
@@ -223,9 +224,9 @@ namespace LockFree
 			: state_(State{ val, gate })
 		{}
 
-		bool TrySet(Gate required_open, Value new_value)
+		bool TrySet(const Gate required_open, Value new_value, const Value assert_empty = {})
 		{
-			const State new_state{ new_value, required_open };
+			const State new_state{ std::move(new_value), required_open };
 			State state = state_.load(std::memory_order_relaxed);
 			do
 			{
@@ -233,15 +234,16 @@ namespace LockFree
 				{
 					return false;
 				}
+				assert(assert_empty == state.value_);
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 			return true;
 		}
 
-		Value Close(Gate new_closed, Value new_empty)
+		Value Close(const Gate new_closed, Value new_empty)
 		{
-			const State old_state = state_.exchange(State{ new_empty, new_closed });
+			const State old_state = state_.exchange(State{ std::move(new_empty), new_closed });
 			return old_state.value_;
 		}
 
