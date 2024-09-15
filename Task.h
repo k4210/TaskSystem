@@ -114,6 +114,10 @@ public:
 	}
 };
 
+namespace Coroutine
+{
+	class DetachHandle;
+}
 
 class TaskSystem
 {
@@ -126,26 +130,31 @@ public:
 
 	static void WaitForWorkerThreadsToJoin();
 
-	static bool ExecuteATask();
+	static bool ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active);
 
-	static auto InitializeTask(std::invocable auto&& function, std::span<Gate*> prerequiers = {}, ETaskFlags flags = ETaskFlags::None
+	static void AsyncResume(Coroutine::DetachHandle handle LOCATION_PARAM);
+
+	template<class F>
+	static auto InitializeTask(F&& functor, std::span<Gate*> prerequiers = {}, ETaskFlags flags = ETaskFlags::None
 		LOCATION_PARAM)
 	{
-		using ResultType = decltype(std::invoke(function));
+		using ResultType = decltype(std::invoke(functor));
 		static_assert(sizeof(Task<ResultType>) == sizeof(BaseTask));
 		if constexpr (std::is_void_v<ResultType>)
 		{
-			return InitializeTaskInner([function = function](BaseTask&) mutable
+			return InitializeTaskInner([function = std::forward<F>(functor)](BaseTask&) mutable
 				{
 					std::invoke(function);
-				}, prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
+				},
+				prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
 		}
 		else
 		{
-			return InitializeTaskInner([function = function](BaseTask& task) mutable
+			return InitializeTaskInner([function = std::forward<F>(functor)](BaseTask& task) mutable
 				{
 					task.result_.Store(std::invoke(function));
-				}, prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
+				}, 
+				prerequiers, flags LOCATION_PASS).Cast<Task<ResultType>>();
 		}
 	}
 

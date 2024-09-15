@@ -1,6 +1,7 @@
 #include "Task.h"
 #include <thread>
 #include <iostream>
+#include "CoroutineHandle.h"
 
 struct DependencyNode
 {
@@ -37,9 +38,25 @@ struct TaskSystemGlobals
 	Pool<DependencyNode, 4096> dependency_pool_;
 	Pool<GenericFuture, 1024> future_pool_;
 	LockFree::Stack<BaseTask> ready_to_execute_;
+	LockFree::Stack<BaseTask> ready_to_execute_named0;
+	LockFree::Stack<BaseTask> ready_to_execute_named1;
+
 	std::array<std::thread, 16> threads_;
 	bool working_ = false;
 	std::atomic<uint8> used_threads_ = 0;
+
+	LockFree::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
+	{
+		if (enum_has_any(flag, ETaskFlags::NamedThread0))
+		{
+			return ready_to_execute_named0;
+		}
+		else if (enum_has_any(flag, ETaskFlags::NamedThread1))
+		{
+			return ready_to_execute_named1;
+		}
+		return ready_to_execute_;
+	}
 };
 
 static TaskSystemGlobals globals;
@@ -139,9 +156,10 @@ void TaskSystem::WaitForWorkerThreadsToJoin()
 #endif
 }
 
-bool TaskSystem::ExecuteATask()
+bool TaskSystem::ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active)
 {
-	BaseTask* task = globals.ready_to_execute_.Pop();
+	BaseTask* task = globals.ReadyStack(flag).Pop();
+	out_active.store(!!task, std::memory_order_relaxed);
 	if (task)
 	{
 		task->Execute();
@@ -213,7 +231,7 @@ void TaskSystem::OnReadyToExecute(BaseTask& task)
 {
 	assert(task.gate_.GetState() == ETaskState::PendingOrExecuting);
 	task.AddRef();
-	globals.ready_to_execute_.Push(task);
+	globals.ReadyStack(task.flag_).Push(task);
 }
 
 std::span<BaseTask> BaseTask::GetPoolSpan()
@@ -238,6 +256,7 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 	DEBUG_CODE(task->source = location;)
+	task->flag_ = flags;
 	task->function_ = std::move(function);
 	assert(task->gate_.IsEmpty());
 	const ETaskState old_state = task->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);
@@ -306,4 +325,16 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	}
 
 	return task;
+}
+
+void TaskSystem::AsyncResume(Coroutine::DetachHandle handle
+#if USE_DEBUG_CODE
+	, std::source_location location
+#endif
+)
+{
+	InitializeTask([handle = handle.PassAndReset()]
+		{
+			handle.resume();
+		}, {}, ETaskFlags::None LOCATION_PASS);
 }

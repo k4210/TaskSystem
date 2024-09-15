@@ -9,6 +9,7 @@ namespace Coroutine
 	{
 		void* do_allocate(std::size_t bytes);
 		void do_deallocate(void* p);
+		void ensure_allocator_free();
 		enum class EInnerState : uint8 { Unfinished, Done };
 	}
 
@@ -92,15 +93,7 @@ namespace Coroutine
 	template <typename Return = void, typename Yield = void>
 	class TPromise : public TPromiseYield<Return, Yield>
 	{
-		using HandleType = std::coroutine_handle<TPromise>;
-
-		HandleType GetHandle()
-		{
-			return HandleType::from_promise(*this);
-		}
-
 	public:
-		using TaskType = TUniqueHandle<TPromise>;
 #if COROUTINE_CUSTOM_ALLOC
 		void* operator new(std::size_t size)
 		{
@@ -111,48 +104,9 @@ namespace Coroutine
 		{
 			detail::do_deallocate(ptr);
 		}
-
-		static TaskType get_return_object_on_allocation_failure()
-		{
-			assert(false);
-			return TaskType();
-		}
 #endif //COROUTINE_CUSTOM_ALLOC
 
-		auto get_return_object()
-		{
-			return TaskType(GetHandle());
-		}
-
-		auto initial_suspend() { return std::suspend_never{}; }
-
 		void unhandled_exception() { assert(false); }
-
-		auto final_suspend() noexcept
-		{
-			struct FFinalAwaiter
-			{
-				bool await_ready() noexcept { return false; }
-
-				void await_suspend(HandleType handle) noexcept
-				{
-					std::coroutine_handle<> continuation = handle.promise().continuation_.Close(detail::EInnerState::Done, std::coroutine_handle<>{});
-					if (continuation)
-					{
-						continuation.resume();
-						/*
-						TaskSystem::InitializeTask([handle = continuation]()
-							{
-								handle.resume();
-							});
-						*/
-					}
-				}
-
-				void await_resume() noexcept {}
-			};
-			return FFinalAwaiter{};
-		}
 
 		auto await_transform(std::suspend_never InAwaiter)
 		{
@@ -234,19 +188,75 @@ namespace Coroutine
 					}
 				}
 			};
-			assert(in_coroutine.GetPromise());
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
+	};
+
+	template <typename Return = void, typename Yield = void>
+	class TAttachPromise : public TPromise<Return, Yield>
+	{
+	public:
+		using HandleType = std::coroutine_handle<TAttachPromise>;
+		using TaskType = TUniqueHandle<TAttachPromise>;
 
 		bool IsDone() const
 		{
 			return continuation_.Get().gate_ == detail::EInnerState::Done;
 		}
-	protected:
-		LockFree::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ = 
+
+		auto initial_suspend() { return std::suspend_never{}; }
+
+		auto final_suspend() noexcept
+		{
+			struct FFinalAwaiter
+			{
+				bool await_ready() noexcept { return false; }
+
+				void await_suspend(HandleType handle) noexcept
+				{
+					std::coroutine_handle<> continuation = handle.promise().continuation_.
+						Close(detail::EInnerState::Done, std::coroutine_handle<>{}).value_;
+					if (continuation)
+					{
+						continuation.resume();
+					}
+				}
+
+				void await_resume() noexcept {}
+			};
+			return FFinalAwaiter{};
+		}
+
+		auto get_return_object()
+		{
+			return TaskType(HandleType::from_promise(*this));
+		}
+
+		LockFree::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ =
 			{ std::coroutine_handle<>{}, detail::EInnerState::Unfinished };
+	};
+
+	class TDetachPromise : public TPromise<void, void>
+	{
+	public:
+		using HandleType = std::coroutine_handle<TDetachPromise>;
+		using TaskType = TDetachHandle<TDetachPromise>;
+
+		auto initial_suspend() { return std::suspend_always{}; }
+
+		auto final_suspend() noexcept
+		{
+			return std::suspend_never{};
+		}
+
+		auto get_return_object()
+		{
+			return TaskType(HandleType::from_promise(*this));
+		}
 	};
 }
 
 template<typename ReturnType = void, typename YieldType = void>
-using TUniqueCoroutine = Coroutine::TPromise<ReturnType, YieldType>::TaskType;
+using TUniqueCoroutine = Coroutine::TAttachPromise<ReturnType, YieldType>::TaskType;
+
+using TDetachCoroutine = Coroutine::TDetachPromise::TaskType;

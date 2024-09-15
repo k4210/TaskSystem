@@ -1,2 +1,9 @@
 TODO:
-- allocation support
+- generic awaitable
+	- coroutie
+	- task
+	- future
+	- guarded resource
+- generic resumable
+	- coroutine
+	- task

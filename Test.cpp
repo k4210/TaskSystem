@@ -1,20 +1,15 @@
-#include <iostream>
-#include <sstream>
-#include <chrono>
-#include <thread>
-#include <vector>
-#include <memory>
-#include <future>
-#include <array>
-#include "Task.h"
 #include "Coroutine.h"
+#include "Task.h"
 #include "Test.h"
+#include <array>
+#include <chrono>
+#include <iostream>
 
 using namespace std::chrono_literals;
 
 std::atomic_int32_t counter = 0;
 
-TUniqueCoroutine<int32> CoroutineTest()
+TDetachCoroutine CoroutineTest(int32 in_val)
 {
 	TRefCountPtr<Task<int32>> async_task = TaskSystem::InitializeTask([]() -> int32
 		{
@@ -40,20 +35,29 @@ TUniqueCoroutine<int32> CoroutineTest()
 		co_return val;
 	}();
 
-	co_return val1 + val2 + val3;
+	assert(in_val && val1 && val2 && val3);
+	//co_return val1 + val2 + val3;
 };
 
 int main()
 {
-	auto LambdaEmpty = []()
+	TaskSystem::StartWorkerThreads();
+	std::this_thread::sleep_for(4ms); // let worker threads start
+
+	auto WaitForTasks = []
 		{
-			counter.fetch_add(1, std::memory_order_relaxed);
+			TaskSystem::WaitForAllTasks();
 		};
 
 	auto LambdaProduce = []() -> std::string
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return "yada hey";
+		};
+#if 1
+	auto LambdaEmpty = []()
+		{
+			counter.fetch_add(1, std::memory_order_relaxed);
 		};
 
 	auto LambdaRead = [](const std::string&) -> void
@@ -71,14 +75,6 @@ int main()
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
-
-	auto WaitForTasks = []
-		{
-			TaskSystem::WaitForAllTasks();
-		};
-
-	TaskSystem::StartWorkerThreads();
-	std::this_thread::sleep_for(4ms); // let worker threads start
 
 	PerformTest([&](uint32)
 		{
@@ -135,70 +131,111 @@ int main()
 			.name = "Read and consume test",
 			.included_cleanup = WaitForTasks
 		});
-	
-	std::array<TUniqueCoroutine<int32>, 1024> handles;
-	auto ResetHandles = [&handles]
+#endif
+	PerformTest([](uint32)
 		{
-			for (auto& handle : handles)
-			{
-				handle = {};
-			}
-		};
-
-	PerformTest([&handles](uint32 idx)
-		{
-			handles[idx] = CoroutineTest();
+			CoroutineTest(1).ResumeAndDetach();
 		}, TestDetails
 		{
-			.inner_num = 1024,
 			.name = "Coroutines complex",
 			.included_cleanup = WaitForTasks,
-			.excluded_cleanup = ResetHandles
 		});
+	Coroutine::detail::ensure_allocator_free();
 
-	PerformTest([&](uint32 idx)
+	PerformTest([](uint32)
 		{
-			TRefCountPtr<Future<int32>> future = TaskSystem::MakeFuture<int32>();
-			TRefCountPtr<Task<std::string>> task = future->Then(LambdaProduce);
-			handles[idx] = [](TRefCountPtr<Future<int32>> future) -> TUniqueCoroutine<int32>
-				{
-					const int32 value = co_await std::move(future);
-					assert(5 == value);
-					co_return value;
-				}(future);
-			future->Done(5);
+			TaskSystem::AsyncResume(CoroutineTest(1));
 		}, TestDetails
 		{
-			.inner_num = 1024,
-			.name = "future",
+			.name = "Coroutines complex async",
 			.included_cleanup = WaitForTasks,
-			.excluded_cleanup = ResetHandles
 		});
+		Coroutine::detail::ensure_allocator_free();
 
+	{
+		std::array<TUniqueCoroutine<int32>, 1024> handles;
+		auto ResetHandles = [&handles]
+			{
+				for (auto& handle : handles)
+				{
+					handle = {};
+				}
+			};
+
+		PerformTest([&](uint32 idx)
+			{
+				TRefCountPtr<Future<int32>> future = TaskSystem::MakeFuture<int32>();
+				TRefCountPtr<Task<std::string>> task = future->Then(LambdaProduce);
+				handles[idx] = [](TRefCountPtr<Future<int32>> future) -> TUniqueCoroutine<int32>
+					{
+						const int32 value = co_await std::move(future);
+						assert(5 == value);
+						co_return value;
+					}(future);
+				future->Done(5);
+			}, TestDetails
+			{
+				.inner_num = 1024,
+				.name = "future",
+				.included_cleanup = WaitForTasks,
+				.excluded_cleanup = ResetHandles
+			});
+		Coroutine::detail::ensure_allocator_free();
+	}
+#if 1 // Named thread test
+	{
+		bool working = true;
+		auto body = [&working](ETaskFlags flag, std::atomic<bool>* is_active)
+			{
+				while (working)
+				{
+					if (!TaskSystem::ExecuteATask(flag, *is_active))
+					{
+						std::this_thread::yield();
+					}
+				}
+			};
+		std::atomic<bool> active0 = true;
+		std::atomic<bool> active1 = true;
+		std::thread named0(body, ETaskFlags::NamedThread0, &active0);
+		std::thread named1(body, ETaskFlags::NamedThread1, &active1);
+		TaskSystem::InitializeTask([]{ std::cout << "Yada0\n"; }, {}, ETaskFlags::NamedThread0);
+		TaskSystem::InitializeTask([]{ std::cout << "Yada1\n"; }, {}, ETaskFlags::NamedThread1);
+		while (active0 || active1) { std::this_thread::yield(); }
+		working = false;
+		named0.join();
+		named1.join();
+	}
+#endif
 	TaskSystem::StopWorkerThreads();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 
-	std::cout << "Generator test:\n";
-	TUniqueCoroutine<void, int32> generator = []() -> TUniqueCoroutine<void, int32>
-		{
-			int32 fn = 0;
-			co_yield fn;
-			int32 fn1 = 1;
-			co_yield fn1;
-			while (true)
-			{
-				const int32 result = fn + fn1;
-				fn = fn1;
-				fn1 = result;
-				co_yield result;
-			}
-		}();
-	for (int32 val = generator.ConsumeYield().value(); val < 10000; 
-		generator.TryResume(), val = generator.ConsumeYield().value())
+#if 1
 	{
-		std::cout << val << " ";
+		std::cout << "Generator test:\n";
+		TUniqueCoroutine<void, int32> generator = []() -> TUniqueCoroutine<void, int32>
+			{
+				int32 fn = 0;
+				co_yield fn;
+				int32 fn1 = 1;
+				co_yield fn1;
+				while (true)
+				{
+					const int32 result = fn + fn1;
+					fn = fn1;
+					fn1 = result;
+					co_yield result;
+				}
+			}();
+		for (int32 val = generator.ConsumeYield().value(); val < 10000;
+			generator.TryResume(), val = generator.ConsumeYield().value())
+		{
+			std::cout << val << " ";
+		}
+		generator.Destroy();
+		std::cout << "\nGenerator test done\n";
 	}
-	generator.Destroy();
-	std::cout << "\nGenerator test done\n";
+	Coroutine::detail::ensure_allocator_free();
+#endif
 	return 0;
 }

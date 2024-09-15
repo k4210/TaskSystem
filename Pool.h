@@ -22,7 +22,13 @@ Node& FromPoolIndex(const LockFree::Index index)
 	return nodes[index];
 }
 
+#ifdef _DEBUG
+#define DO_POOL_STATS 1
+#else
 #define DO_POOL_STATS 0
+#endif // _DEBUG
+
+
 
 template<typename Node, std::size_t Size>
 struct Pool

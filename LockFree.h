@@ -86,7 +86,79 @@ namespace LockFree
 
 		std::atomic<State> state_;
 	};
+/*
+	template<typename Node>
+	struct Queue
+	{
+		Node* Pop()
+		{
+			State state = state_.load(std::memory_order_relaxed);
+			State new_state;
+			do
+			{
+				if (kInvalidIndex == state.head)
+				{
+					assert(state.tail == kInvalidIndex);
+					return nullptr;
+				}
+				assert(state.tail != kInvalidIndex);
 
+				new_state.head = FromPoolIndex<Node>(state.head).next_;
+				if (state.head == state.tail)
+				{
+					assert(new_state.head == kInvalidIndex);
+					new_state.tail = kInvalidIndex;
+				}
+				else
+				{
+					new_state.tail = state.tail;
+				}
+				new_state.tag = state.tag + 1;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+
+			Node& node = FromPoolIndex<Node>(state.head);
+			node.next_ = kInvalidIndex;
+			//node.prev_ = kInvalidIndex;
+			return &node;
+		}
+
+		void Push(Node& node)
+		{
+			assert(node.next_ == kInvalidIndex);
+			const Index idx = GetPoolIndex(node);
+			State new_state{ .tail = idx };
+			State state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				if (kInvalidIndex == state.head)
+				{
+					assert(state.tail == kInvalidIndex);
+					new_state.tail = idx;
+				}
+				else
+				{
+					assert(state.tail != kInvalidIndex);
+
+				}
+				new_state.tag = state.tag + 1;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+		}
+
+	private:
+		struct State
+		{
+			Index head = kInvalidIndex;
+			Index tail = kInvalidIndex;
+			Tag tag = 0;
+		};
+
+		std::atomic<State> state_;
+	}
+*/
 	template<typename Node>
 	struct PointerBasedStack
 	{
@@ -241,10 +313,9 @@ namespace LockFree
 			return true;
 		}
 
-		Value Close(const Gate new_closed, Value new_empty)
+		State Close(const Gate new_closed, Value new_empty)
 		{
-			const State old_state = state_.exchange(State{ std::move(new_empty), new_closed });
-			return old_state.value_;
+			return state_.exchange(State{ std::move(new_empty), new_closed });
 		}
 
 		State Get() const

@@ -58,13 +58,33 @@ struct MemoryBlocksCollection
 
 	~MemoryBlocksCollection()
 	{
+		uint32 local_counter = 0;
 		while (BlockHeader* block = free_.Pop())
 		{
 			std::destroy_at(block);
 			std::free(block);
+			local_counter++;
 		}
+		assert(local_counter == counter_);
 		DEBUG_CODE(std::cout << "Simple allocator " << block_size_ << " max usage: " << counter_.load() << std::endl;)
 	}
+
+	void ensure_all_free()
+	{
+		uint32 local_counter = 0;
+		LockFree::PointerBasedStack<BlockHeader> temp;
+		while (BlockHeader* block = free_.Pop())
+		{
+			temp.Push(*block);
+			local_counter++;
+		}
+		assert(local_counter == counter_);
+		while (BlockHeader* block = temp.Pop())
+		{
+			free_.Push(*block);
+		}
+	}
+
 
 	const std::size_t block_size_; //including header
 
@@ -117,6 +137,14 @@ public:
 
 		std::destroy_at(block);
 		std::free(ptr);
+	}
+
+	void ensure_all_free()
+	{
+		for (auto& collecion : block_collections)
+		{
+			collecion.ensure_all_free();
+		}
 	}
 
 private:

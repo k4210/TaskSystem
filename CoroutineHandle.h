@@ -2,9 +2,74 @@
 
 #include <coroutine>
 #include <optional>
+#include "assert.h"
 
 namespace Coroutine
 {
+	template <typename Promise> class TDetachHandle;
+
+	class DetachHandle
+	{
+	public:
+		DetachHandle(std::coroutine_handle<> in_handle)
+			: handle_(in_handle)
+		{
+			assert(handle_);
+		}
+
+		DetachHandle(const DetachHandle&) = delete;
+		DetachHandle& operator=(const DetachHandle&) = delete;
+		DetachHandle(DetachHandle&& moved)
+			: handle_(moved.handle_)
+		{
+			moved.handle_ = nullptr;
+		}
+		template<typename Promise>
+		DetachHandle(TDetachHandle<Promise>&& moved)
+			: handle_(moved.handle_)
+		{
+			moved.handle_ = nullptr;
+		}
+		DetachHandle& operator=(DetachHandle&&) = delete;
+
+		void ResumeAndDetach()
+		{
+			assert(handle_);
+			handle_.resume();
+			handle_ = nullptr;
+		}
+
+		~DetachHandle()
+		{
+			assert(!handle_);
+		}
+
+	private:
+		friend class TaskSystem;
+		std::coroutine_handle<> PassAndReset() //workaround for std::function problem (args are copied, not moved0
+		{
+			assert(handle_);
+			std::coroutine_handle<> handle = handle_;
+			handle_ = nullptr;
+			return handle;
+		}
+
+		std::coroutine_handle<> handle_;
+	};
+
+	template <typename Promise>
+	class TDetachHandle : public DetachHandle
+	{
+	public:
+		using promise_type = Promise;
+
+		TDetachHandle(std::coroutine_handle<Promise> in_handle)
+			: DetachHandle(in_handle)
+		{
+			static_assert(sizeof(TDetachHandle<Promise>) == sizeof(DetachHandle));
+		}
+	};
+
 	enum class EStatus
 	{
 		Unfinished,
@@ -68,15 +133,14 @@ namespace Coroutine
 			}
 		}
 
-		// Thread safe
 		EStatus Status() const
 		{
 			if (!handle_)
 			{
 				return EStatus::Disconnected;
 			}
-			const PromiseType& Promise = handle_.promise();
-			return Promise.IsDone() 
+			const PromiseType& promise = handle_.promise();
+			return promise.IsDone() // Thread safe
 				? EStatus::Done 
 				: EStatus::Unfinished;
 		}
@@ -105,6 +169,7 @@ namespace Coroutine
 		}
 
 		friend PromiseType;
+		template <typename R, typename Y> friend class TPromise;
 		HandleType handle_;
 	};
 }

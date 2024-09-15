@@ -19,4 +19,9 @@ namespace Coroutine::detail
 		}
 		simple_allocator.deallocate(reinterpret_cast<uint8*>(ptr));
 	}
+
+	void ensure_allocator_free()
+	{
+		simple_allocator.ensure_all_free();
+	}
 }

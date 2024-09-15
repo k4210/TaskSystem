@@ -15,7 +15,9 @@ template<typename T> class Task;
 enum class ETaskFlags : uint8
 {
 	None = 0,
-	TryExecuteImmediate = 1
+	TryExecuteImmediate = 1,
+	NamedThread0 = 2,
+	NamedThread1 = 4,
 };
 
 enum class ETaskState : uint8
@@ -165,6 +167,7 @@ protected:
 	void OnRefCountZero();
 
 	std::atomic<uint16> prerequires_ = 0;
+	ETaskFlags flag_ = ETaskFlags::None;
 
 	std::function<void(BaseTask&)> function_;
 	DEBUG_CODE(std::source_location source;)
