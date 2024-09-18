@@ -137,6 +137,7 @@
     <ClInclude Include="Common.h" />
     <ClInclude Include="Coroutine.h" />
     <ClInclude Include="CoroutineHandle.h" />
+    <ClInclude Include="GuardedResource.h" />
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
     <ClInclude Include="Profiling.h" />
@@ -148,6 +149,7 @@
     <ClInclude Include="Test.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="GuardedResource.cpp" />
     <ClCompile Include="Task.cpp" />
     <ClCompile Include="Coroutine.cpp" />
     <ClCompile Include="Test.cpp" />

@@ -3,7 +3,7 @@
 #include <atomic>
 #include <span>
 #include <limits>
-
+#include <optional>
 #include <assert.h>
 #include <array>
 #include "Common.h"
@@ -258,9 +258,59 @@ namespace LockFree
 			return true;
 		}
 
-		//Should be called once.
+		// Returns old gate
+		Gate AddForceOpen(Node& node, const Gate open)
+		{
+			const Index idx = GetPoolIndex(node);
+			const State new_state{ .head = idx, .gate = open };
+			State state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				node.next_ = state.head;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			return state.gate;
+		}
+
+		//returns prev state
+		Gate ExchangeState(Gate new_gate)
+		{
+			State state = state_.load(std::memory_order_relaxed);
+			State new_state{ state.head, new_gate };
+			do
+			{
+				if (state.gate == new_gate)
+				{
+					break;
+				}
+				new_state.head = state.head;
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			return state.gate;
+		}
+
+		bool ChangeIfEmpty(Gate new_gate)
+		{
+			const State new_state{ kInvalidIndex, new_gate };
+			State state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				if (state.head != kInvalidIndex)
+				{
+					return false;
+				}
+				assert(state.gate != new_gate);
+			} while (!state_.compare_exchange_weak(state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			return true;
+		}
+
+		//Should be called once. Returns prev gate state
 		template<typename Func>
-		void CloseAndConsume(const Gate closed, Func& func)
+		Gate CloseAndConsume(const Gate closed, Func& func)
 		{
 			const State old_state = state_.exchange(State{ .gate = closed });
 
@@ -271,6 +321,7 @@ namespace LockFree
 				head = node.next_;
 				func(node); // node.next_ should be handled here
 			}
+			return old_state.gate;
 		}
 
 	private:

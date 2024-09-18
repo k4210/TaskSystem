@@ -105,6 +105,7 @@ public:
 	template<typename OtherType>
 	TRefCountPtr<OtherType> Cast() &&
 	{
+		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
 		TRefCountPtr<OtherType> other;
 		other.Reference = static_cast<OtherType*>(Get());
 		Reference = nullptr;
@@ -114,6 +115,7 @@ public:
 	template<typename OtherType>
 	TRefCountPtr<OtherType> Cast() &
 	{
+		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
 		return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
 	}
 
@@ -153,11 +155,12 @@ public:
 		}
 		return *this;
 	}
-	*/
+	
 	TRefCountPtr& operator=(const TRefCountPtr InPtr)
 	{
 		return *this = InPtr.Get();
 	}
+	*/
 
 	TRefCountPtr& operator=(TRefCountPtr&& InPtr)
 	{

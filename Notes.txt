@@ -1,9 +1,4 @@
 TODO:
-- generic awaitable
-	- coroutie
-	- task
-	- future
-	- guarded resource
-- generic resumable
-	- coroutine
-	- task
+
+- assert no deadlocks, single guarded reaource
+- guarded awaiter

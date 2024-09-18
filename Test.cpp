@@ -1,5 +1,6 @@
 #include "Coroutine.h"
 #include "Task.h"
+#include "GuardedResource.h"
 #include "Test.h"
 #include <array>
 #include <chrono>
@@ -11,7 +12,7 @@ std::atomic_int32_t counter = 0;
 
 TDetachCoroutine CoroutineTest(int32 in_val)
 {
-	TRefCountPtr<Task<int32>> async_task = TaskSystem::InitializeTask([]() -> int32
+	TRefCountPtr<Future<int32>> async_task = TaskSystem::InitializeTask([]() -> int32
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return 1;
@@ -39,6 +40,12 @@ TDetachCoroutine CoroutineTest(int32 in_val)
 	//co_return val1 + val2 + val3;
 };
 
+#define TASK_TEST 0
+#define COROUTINE_TEST 0
+#define NAMED_THREAD_TEST 0
+#define GUARDED_TEST 1
+#define GENERATOR_TEST 0
+
 int main()
 {
 	TaskSystem::StartWorkerThreads();
@@ -54,7 +61,7 @@ int main()
 			counter.fetch_add(1, std::memory_order_relaxed);
 			return "yada hey";
 		};
-#if 1
+
 	auto LambdaEmpty = []()
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
@@ -75,10 +82,10 @@ int main()
 		{
 			counter.fetch_add(1, std::memory_order_relaxed);
 		};
-
+#if TASK_TEST
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> A = TaskSystem::InitializeTask(LambdaEmpty);
 			A->Then(LambdaEmpty);
 			A->Then(LambdaEmpty);
 			A->Then(LambdaEmpty);
@@ -91,9 +98,9 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> A = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> B = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
@@ -106,9 +113,9 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<>> A = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Task<>> B = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Task<>> C = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> A = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> B = TaskSystem::InitializeTask(LambdaEmpty);
+			TRefCountPtr<Future<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
 			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
@@ -121,9 +128,9 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Task<std::string>> A = TaskSystem::InitializeTask(LambdaProduce);
+			TRefCountPtr<Future<std::string>> A = TaskSystem::InitializeTask(LambdaProduce);
 			A->ThenRead(LambdaRead);
-			TRefCountPtr<Task<std::string>> C = A->ThenRead(LambdaReadPass);
+			TRefCountPtr<Future<std::string>> C = A->ThenRead(LambdaReadPass);
 			C->ThenConsume(LambdaConsume);
 		}, TestDetails
 		{
@@ -132,6 +139,7 @@ int main()
 			.included_cleanup = WaitForTasks
 		});
 #endif
+#if COROUTINE_TEST
 	PerformTest([](uint32)
 		{
 			CoroutineTest(1).ResumeAndDetach();
@@ -165,7 +173,7 @@ int main()
 		PerformTest([&](uint32 idx)
 			{
 				TRefCountPtr<Future<int32>> future = TaskSystem::MakeFuture<int32>();
-				TRefCountPtr<Task<std::string>> task = future->Then(LambdaProduce);
+				TRefCountPtr<Future<std::string>> task = future->Then(LambdaProduce);
 				handles[idx] = [](TRefCountPtr<Future<int32>> future) -> TUniqueCoroutine<int32>
 					{
 						const int32 value = co_await std::move(future);
@@ -182,7 +190,8 @@ int main()
 			});
 		Coroutine::detail::ensure_allocator_free();
 	}
-#if 1 // Named thread test
+#endif
+#if NAMED_THREAD_TEST
 	{
 		bool working = true;
 		auto body = [&working](ETaskFlags flag, std::atomic<bool>* is_active)
@@ -207,10 +216,32 @@ int main()
 		named1.join();
 	}
 #endif
+#if GUARDED_TEST
+	{
+		TRefCountPtr<GuardedResource<int32>> resource(new GuardedResource<int32>(0));
+		PerformTest([&](uint32)
+			{
+				TaskSystem::InitializeTask([&]()
+					{
+						resource->UseWhenAvailible([](int32& res) { res++; });
+					}
+				);
+			}, TestDetails
+			{
+				.inner_num = 512,
+				.name = "guarded test",
+				.included_cleanup = WaitForTasks
+			});
+		resource->UseWhenAvailible([](int32 res)
+			{
+				assert(res == 512 * 64);
+			});
+	}
+#endif
 	TaskSystem::StopWorkerThreads();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 
-#if 1
+#if GENERATOR_TEST
 	{
 		std::cout << "Generator test:\n";
 		TUniqueCoroutine<void, int32> generator = []() -> TUniqueCoroutine<void, int32>

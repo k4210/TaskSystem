@@ -1,65 +1,36 @@
 #include "Task.h"
-#include <thread>
 #include <iostream>
 #include "CoroutineHandle.h"
-
-struct DependencyNode
-{
-	static std::span<DependencyNode> GetPoolSpan();
-#if !defined(NDEBUG)
-	void OnReturnToPool()
-	{
-		assert(!task_);
-	}
-#endif
-	TRefCountPoolPtr<BaseTask> task_;
-
-	LockFree::Index next_ = LockFree::kInvalidIndex;
-};
 
 uint16 BaseTask::GetNumberOfPendingPrerequires() const
 {
 	return prerequires_.load(std::memory_order_relaxed);
 }
 
-void BaseTask::OnPrerequireDone()
+void BaseTask::OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
 	assert(prerequires_);
 	uint16 new_count = --prerequires_;
 	if (!new_count)
 	{
-		TaskSystem::OnReadyToExecute(*this);
+		if (!enum_has_any(flag_, ETaskFlags::NameThreadMask) &&
+			out_first_ready_dependency && !out_first_ready_dependency->IsValid())
+		{
+			*out_first_ready_dependency = this;
+		}
+		else
+		{
+			TaskSystem::OnReadyToExecute(*this);
+		}
 	}
 }
 
-struct TaskSystemGlobals
-{
-	Pool<BaseTask, 1024> task_pool_;
-	Pool<DependencyNode, 4096> dependency_pool_;
-	Pool<GenericFuture, 1024> future_pool_;
-	LockFree::Stack<BaseTask> ready_to_execute_;
-	LockFree::Stack<BaseTask> ready_to_execute_named0;
-	LockFree::Stack<BaseTask> ready_to_execute_named1;
-
-	std::array<std::thread, 16> threads_;
-	bool working_ = false;
-	std::atomic<uint8> used_threads_ = 0;
-
-	LockFree::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
-	{
-		if (enum_has_any(flag, ETaskFlags::NamedThread0))
-		{
-			return ready_to_execute_named0;
-		}
-		else if (enum_has_any(flag, ETaskFlags::NamedThread1))
-		{
-			return ready_to_execute_named1;
-		}
-		return ready_to_execute_;
-	}
-};
-
 static TaskSystemGlobals globals;
+
+TaskSystemGlobals& TaskSystem::GetGlobals()
+{
+	return globals;
+}
 
 std::span<DependencyNode> DependencyNode::GetPoolSpan()
 {
@@ -73,14 +44,30 @@ std::span<GenericFuture> GenericFuture::GetPoolSpan()
 
 void GenericFuture::OnRefCountZero()
 {
-	OnDestroy();
-	globals.future_pool_.Return(*this);
-}
+	assert(gate_.IsEmpty());
+	const ETaskState state = gate_.GetState();
+	assert(state != ETaskState::Nonexistent_Pooled);
+	if (state == ETaskState::DoneUnconsumedResult)
+	{
+		// RefCount is zero, so no other thread has access to the task
+		result_.Reset();
+	}
+	assert(!result_.HasValue());
+	if (state != ETaskState::Done)
+	{
+		gate_.ResetStateOnEmpty(ETaskState::Done);
+	}
 
-void BaseTask::OnRefCountZero()
-{
-	OnDestroy();
-	globals.task_pool_.Return(*this);
+	if (globals.future_pool_.BelonsTo(*this))
+	{
+		globals.future_pool_.Return(*this);
+	}
+	else
+	{
+		BaseTask& task = *static_cast<BaseTask*>(this);
+		assert(globals.task_pool_.BelonsTo(task));
+		globals.task_pool_.Return(task);
+	}
 }
 
 void TaskSystem::StartWorkerThreads()
@@ -100,8 +87,16 @@ void TaskSystem::StartWorkerThreads()
 					marked_as_used = true;
 					globals.used_threads_.fetch_add(1, std::memory_order_relaxed);
 				}
-				task->Execute();
+				TRefCountPtr<BaseTask> next = nullptr;
+				task->Execute(&next);
 				task->Release();
+
+				while (next)
+				{
+					TRefCountPtr<BaseTask> other_next = nullptr;
+					next->Execute(&other_next);
+					next = std::move(other_next);
+				}
 			}
 			else
 			{
@@ -168,7 +163,7 @@ bool TaskSystem::ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active)
 	return !!task;
 }
 
-void Gate::Done(ETaskState new_state)
+void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
 	assert(GetState() == ETaskState::PendingOrExecuting);
 	assert(new_state == ETaskState::Done || new_state == ETaskState::DoneUnconsumedResult);
@@ -182,7 +177,7 @@ void Gate::Done(ETaskState new_state)
 				head = &node;
 			}
 			tail = &node;
-			node.task_->OnPrerequireDone();
+			node.task_->OnPrerequireDone(out_first_ready_dependency);
 			node.task_ = nullptr;
 		};
 	
@@ -214,7 +209,7 @@ bool Gate::TryAddDependency(BaseTask& task)
 	return added;
 }
 
-void BaseTask::Execute()
+void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
 	assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 	assert(!prerequires_);
@@ -224,7 +219,7 @@ void BaseTask::Execute()
 	function_ = nullptr;
 
 	const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
-	gate_.Done(new_state);
+	gate_.Done(new_state, out_first_ready_dependency);
 }
 
 void TaskSystem::OnReadyToExecute(BaseTask& task)
@@ -249,10 +244,7 @@ TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
 }
 
 TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<Gate*> prerequiers, ETaskFlags flags
-#if USE_DEBUG_CODE
-	, std::source_location location
-#endif
-	)
+	LOCATION_PARAM_IMPL)
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 	DEBUG_CODE(task->source = location;)
@@ -265,6 +257,10 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 
 	auto ProcessOnReady = [&]()
 	{
+		if (enum_has_any(flags, ETaskFlags::DontExecute))
+		{
+			return;
+		}
 		if (enum_has_any(flags, ETaskFlags::TryExecuteImmediate))
 		{
 			task->Execute();
@@ -278,7 +274,7 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	if (!prerequiers.size())
 	{
 		ProcessOnReady();
-		return task;
+		return std::move(task);
 	}
 
 	uint16 inactive_prereq = 0;
@@ -327,11 +323,7 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 	return task;
 }
 
-void TaskSystem::AsyncResume(Coroutine::DetachHandle handle
-#if USE_DEBUG_CODE
-	, std::source_location location
-#endif
-)
+void TaskSystem::AsyncResume(Coroutine::DetachHandle handle LOCATION_PARAM_IMPL)
 {
 	InitializeTask([handle = handle.PassAndReset()]
 		{

@@ -54,6 +54,9 @@
     <ClInclude Include="BaseTask.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="GuardedResource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Task.cpp">
@@ -63,6 +66,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Coroutine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GuardedResource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

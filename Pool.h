@@ -93,6 +93,12 @@ struct Pool
 		return all_;
 	}
 
+	bool BelonsTo(const Node& node)
+	{
+		const Node* ptr = all_.data();
+		return (&node >= ptr) && (std::distance(ptr, &node) < Size);
+	}
+
 #if DO_POOL_STATS
 	uint32 GetMaxUsedNum() { return max_used; }
 	uint32 GetUsedNum() { return used_counter_; }

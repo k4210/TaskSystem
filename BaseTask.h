@@ -10,7 +10,7 @@
 struct DependencyNode;
 class BaseTask;
 class TaskSystem;
-template<typename T> class Task;
+template<typename T> class Future;
 
 enum class ETaskFlags : uint8
 {
@@ -18,6 +18,9 @@ enum class ETaskFlags : uint8
 	TryExecuteImmediate = 1,
 	NamedThread0 = 2,
 	NamedThread1 = 4,
+	DontExecute = 8,
+
+	NameThreadMask = NamedThread0 | NamedThread1
 };
 
 enum class ETaskState : uint8
@@ -64,24 +67,20 @@ public:
 		return depending_.SetFastOnEmpty(new_state);
 	}
 
-	void Done(ETaskState new_state);
+	void Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 	bool TryAddDependency(BaseTask& task);
 
 	bool AddDependencyInner(DependencyNode& node, ETaskState required_state);
 
 	template<typename F>
-	auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Task<decltype(function())>>
-	{
-		Gate* pre_req[] = { this };
-		return TaskSystem::InitializeTask(std::move(function), pre_req, flags LOCATION_PASS);
-	}
+	auto Then(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Future<decltype(function())>>;
 
 protected:
 	LockFree::Collection<DependencyNode, ETaskState> depending_;
 };
 
-class CommonBase
+class GenericFuture : public TRefCounted<GenericFuture>
 {
 public:
 	bool IsPendingOrExecuting() const
@@ -92,7 +91,7 @@ public:
 	}
 
 	template<typename F>
-	auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Task<decltype(function())>>
+	auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Future<decltype(function())>>
 	{
 		return gate_.Then(std::move(function), flags LOCATION_PASS);
 	}
@@ -102,26 +101,10 @@ public:
 		return &gate_;
 	}
 
+	void OnRefCountZero();
+	static std::span<GenericFuture> GetPoolSpan();
+
 protected:
-
-	void OnDestroy()
-	{
-		assert(gate_.IsEmpty());
-		const ETaskState state = gate_.GetState();
-		assert(state != ETaskState::Nonexistent_Pooled);
-		if (state == ETaskState::DoneUnconsumedResult)
-		{
-			// RefCount is zero, so no other thread has access to the task
-			result_.Reset();
-			
-		}
-		assert(!result_.HasValue());
-		if(state != ETaskState::Done)
-		{
-			gate_.ResetStateOnEmpty(ETaskState::Done);
-		}
-	}
-
 #if !defined(NDEBUG)
 	void OnReturnToPool()
 	{
@@ -136,44 +119,114 @@ protected:
 
 	friend class TaskSystem;
 	template<typename Node> friend struct LockFree::Stack;
+	template<typename A, typename B> friend struct LockFree::Collection;
 	template<typename Node, std::size_t Size> friend struct Pool;
 	template<typename T, typename DerivedType> friend class CommonSpecialization;
+	friend class GuardedResourceBase;
+	template<typename T> friend class GuardedResource;
 };
 
-class GenericFuture : public TRefCounted<GenericFuture>, public CommonBase
+template<typename T, typename DerivedType>
+class CommonSpecialization
 {
 public:
-	static std::span<GenericFuture> GetPoolSpan();
+	using ReturnType = T;
 
-protected:
-	friend TRefCounted<GenericFuture>;
-	void OnRefCountZero();
+	// Either ShareResult or DropResult should be used, no both!
+	T DropResult()
+	{
+		DerivedType* common = static_cast<DerivedType*>(this);
+		const ETaskState old_state = common->gate_.ResetStateOnEmpty(ETaskState::Done);
+		assert(old_state == ETaskState::DoneUnconsumedResult);
+		T result = common->result_.GetOnce<T>();
+		common->result_.Reset();
+		return result;
+	}
+
+	const T& ShareResult() const
+	{
+		const DerivedType* common = static_cast<const DerivedType*>(this);
+		assert(common->gate_.GetState() == ETaskState::DoneUnconsumedResult);
+		return common->result_.Get<T>();
+	}
+
+	template<typename F>
+	auto ThenRead(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
+	{
+		DerivedType* common = static_cast<DerivedType*>(this);
+		Gate* pre_req[] = { common->GetGate() };
+		using ResultType = decltype(function(T{}));
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() -> ResultType
+			{
+				if constexpr (std::is_void_v<ResultType>)
+				{
+					function(source->ShareResult());
+					return;
+				}
+				else
+				{
+					return function(source->ShareResult());
+				}
+			};
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, flags LOCATION_PASS);
+	}
+
+	template<typename F>
+	auto ThenConsume(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
+	{
+		DerivedType* common = static_cast<DerivedType*>(this);
+		Gate* pre_req[] = { common->GetGate() };
+		using ResultType = decltype(function(T{}));
+		auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() mutable -> ResultType
+			{
+				T value = source->DropResult();
+				source = nullptr;
+				if constexpr (std::is_void_v<ResultType>)
+				{
+					function(std::move(value));
+					return;
+				}
+				else
+				{
+					return function(std::move(value));
+				}
+			};
+		return TaskSystem::InitializeTask(std::move(lambda), pre_req, flags LOCATION_PASS);
+	}
 };
 
-class BaseTask : public TRefCounted<BaseTask>, public CommonBase
+template<typename T = void>
+class Future : public GenericFuture, public CommonSpecialization<T, Future<T>>
 {
 public:
-	static std::span<BaseTask> GetPoolSpan();
-
-	uint16 GetNumberOfPendingPrerequires() const;
-
-#pragma region protected
-protected:
-
-	void Execute();
-
-	void OnPrerequireDone();
-
-	void OnRefCountZero();
-
-	std::atomic<uint16> prerequires_ = 0;
-	ETaskFlags flag_ = ETaskFlags::None;
-
-	std::function<void(BaseTask&)> function_;
-	DEBUG_CODE(std::source_location source;)
-
-	friend TRefCounted<BaseTask>;
-	friend class TaskSystem;
-	friend Gate;
-#pragma endregion
+	void Done(T&& val)
+	{
+		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
+		assert(!result_.HasValue());
+		result_.Store(std::forward<T>(val));
+		gate_.Done(ETaskState::DoneUnconsumedResult);
+	}
 };
+
+template<>
+class Future<void> : public GenericFuture
+{
+public:
+	using ReturnType = void;
+
+	void Done()
+	{
+		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
+		assert(!result_.HasValue());
+		gate_.Done(ETaskState::Done);
+	}
+};
+
+template<typename F>
+auto Gate::Then(F&& function, ETaskFlags flags LOCATION_PARAM_IMPL) -> TRefCountPtr<Future<decltype(function())>>
+{
+	using ResultType = decltype(function());
+	Gate* pre_req[] = { this };
+	static_assert(sizeof(Future<ResultType>) == sizeof(GenericFuture));
+	return TaskSystem::InitializeTask(std::forward<F>(function), pre_req, flags LOCATION_PASS).Cast<Future<ResultType>>();
+}

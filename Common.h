@@ -7,11 +7,13 @@
 #define DEBUG_CODE(x)
 #define USE_DEBUG_CODE 0
 #define LOCATION_PARAM
+#define LOCATION_PARAM_IMPL 
 #define LOCATION_PASS
 #else
 #define DEBUG_CODE(x) x
 #define USE_DEBUG_CODE 1
 #define LOCATION_PARAM , std::source_location location = std::source_location::current()
+#define LOCATION_PARAM_IMPL , std::source_location location
 #define LOCATION_PASS , location
 #endif // NDEBUG
 
