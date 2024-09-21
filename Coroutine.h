@@ -2,6 +2,7 @@
 
 #include "CoroutineHandle.h"
 #include "Task.h"
+#include "GuardedResource.h"
 
 namespace Coroutine
 {
@@ -189,6 +190,35 @@ namespace Coroutine
 				}
 			};
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
+		}
+
+		template<typename T>
+		auto await_transform(TRefCountPtr<GuardedResource<T>> resource)
+		{
+			struct TTaskAwaiter
+			{
+				TRefCountPtr<GuardedResource<T>> resource_;
+
+				bool await_ready()
+				{
+					return resource_->TryLock();
+				}
+				void await_suspend(std::coroutine_handle<> handle)
+				{
+					assert(handle);
+					auto resume_coroutine = [handle]()
+						{
+							handle.resume();
+						};
+					resource_->RedirectWhenAvailible(resume_coroutine);
+				}
+				auto await_resume()
+				{
+					return ResourceAccessScope<T>(std::move(resource_));
+				}
+			};
+			assert(resource);
+			return TTaskAwaiter{ std::forward<TRefCountPtr<GuardedResource<T>>>(resource) };
 		}
 	};
 

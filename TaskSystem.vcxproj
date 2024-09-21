@@ -137,6 +137,7 @@
     <ClInclude Include="Common.h" />
     <ClInclude Include="Coroutine.h" />
     <ClInclude Include="CoroutineHandle.h" />
+    <ClInclude Include="Gate.h" />
     <ClInclude Include="GuardedResource.h" />
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
@@ -145,7 +146,7 @@
     <ClInclude Include="SimpleAllocator.h" />
     <ClInclude Include="Task.h" />
     <ClInclude Include="RefCountPoolPtr.h" />
-    <ClInclude Include="BaseTask.h" />
+    <ClInclude Include="Future.h" />
     <ClInclude Include="Test.h" />
   </ItemGroup>
   <ItemGroup>

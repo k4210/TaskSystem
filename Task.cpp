@@ -2,10 +2,33 @@
 #include <iostream>
 #include "CoroutineHandle.h"
 
-uint16 BaseTask::GetNumberOfPendingPrerequires() const
+struct TaskSystemGlobals
 {
-	return prerequires_.load(std::memory_order_relaxed);
-}
+	Pool<BaseTask, 1024> task_pool_;
+	Pool<DependencyNode, 4096> dependency_pool_;
+	Pool<GenericFuture, 1024> future_pool_;
+	LockFree::Stack<BaseTask> ready_to_execute_;
+	std::array<LockFree::Stack<BaseTask>, 5>  ready_to_execute_named;
+
+	std::array<std::thread, 16> threads_;
+	bool working_ = false;
+	std::atomic<uint8> used_threads_ = 0;
+
+	LockFree::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
+	{
+		int32 counter = 0;
+		for (ETaskFlags thread_name : { ETaskFlags::NamedThread1, ETaskFlags::NamedThread2, ETaskFlags::NamedThread3, ETaskFlags::NamedThread4, ETaskFlags::NamedThread5})
+		{
+			if (enum_has_any(flag, thread_name))
+			{
+				return ready_to_execute_named[counter];
+			}
+			counter++;
+		}
+		return ready_to_execute_;
+	}
+};
+static TaskSystemGlobals globals;
 
 void BaseTask::OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
@@ -23,13 +46,6 @@ void BaseTask::OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependen
 			TaskSystem::OnReadyToExecute(*this);
 		}
 	}
-}
-
-static TaskSystemGlobals globals;
-
-TaskSystemGlobals& TaskSystem::GetGlobals()
-{
-	return globals;
 }
 
 std::span<DependencyNode> DependencyNode::GetPoolSpan()
@@ -188,25 +204,6 @@ void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_de
 		assert(tail);
 		globals.dependency_pool_.ReturnChain(*head, *tail);
 	}
-}
-
-bool Gate::AddDependencyInner(DependencyNode& node, ETaskState required_state)
-{
-	return depending_.Add(node, required_state);
-}
-
-bool Gate::TryAddDependency(BaseTask& task)
-{
-	DependencyNode& node = globals.dependency_pool_.Acquire();
-	node.task_ = task;
-
-	const bool added = AddDependencyInner(node, ETaskState::PendingOrExecuting);
-	if (!added)
-	{
-		node.task_ = nullptr;
-		globals.dependency_pool_.Return(node);
-	}
-	return added;
 }
 
 void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)

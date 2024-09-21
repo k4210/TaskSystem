@@ -13,11 +13,14 @@ bool GuardedResourceBase::TryLock() //Return if this call locked it.
 
 bool GuardedResourceBase::UnlockIfNoneEnqueued()
 {
-	assert(reverse_head_ == LockFree::kInvalidIndex);
+	if (reverse_head_ != LockFree::kInvalidIndex)
+	{
+		return false;
+	}
 	return state_.ChangeIfEmpty(EState::Unlocked);
 }
 
-void GuardedResourceBase::ExecuteAll()
+GuardedResourceBase::EExecutionState GuardedResourceBase::ExecuteAll()
 {
 	if (reverse_head_ == LockFree::kInvalidIndex)
 	{
@@ -36,14 +39,27 @@ void GuardedResourceBase::ExecuteAll()
 		reverse_head_ = node.next_;
 		node.next_ = LockFree::kInvalidIndex;
 		node.Execute();
+		const bool redirected = enum_has_any(node.GetFlags(), ETaskFlags::RedirectExecutrionForGuardedResource);
 		node.Release();
+		if (redirected)
+		{
+			return EExecutionState::Redirected;
+		}
 	}
+	return EExecutionState::Done;
 }
 
 void GuardedResourceBase::TriggerAsyncExecution()
 {
 	TaskSystem::InitializeTask([resource = TRefCountPtr<GuardedResourceBase>(this)]
 		{
-			do { resource->ExecuteAll(); } while (!resource->UnlockIfNoneEnqueued());
+			do 
+			{ 
+				const EExecutionState state = resource->ExecuteAll();
+				if (state == EExecutionState::Redirected)
+				{
+					return;
+				}
+			} while (!resource->UnlockIfNoneEnqueued());
 		});
 }

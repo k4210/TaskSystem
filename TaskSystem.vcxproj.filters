@@ -51,10 +51,13 @@
     <ClInclude Include="SimpleAllocator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BaseTask.h">
+    <ClInclude Include="Future.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GuardedResource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Gate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

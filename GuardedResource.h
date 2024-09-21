@@ -1,9 +1,18 @@
 #pragma once
 
 #include "Task.h"
+#include <type_traits>
+
+template<typename T> struct ResourceAccessScope;
 
 class GuardedResourceBase : public TRefCounted<GuardedResourceBase>
 {
+public:
+	bool TryLock();
+	bool IsLocked() const
+	{
+		return state_.GetGateState() == EState::Locked;
+	}
 protected:
 	enum class EState { Locked, Unlocked };
 
@@ -11,16 +20,31 @@ protected:
 
 	//Return if this call locked it.
 	bool TryLockAndEnqueue(BaseTask& node);
-	bool TryLock(); 
 
 	void TriggerAsyncExecution();
 
 	bool UnlockIfNoneEnqueued();
+
+	void ContinueSharing()
+	{
+		if (!UnlockIfNoneEnqueued())
+		{
+			TriggerAsyncExecution();
+		}
+	}
+
 private:
-	void ExecuteAll();
+	enum class EExecutionState
+	{
+		Done,
+		Redirected
+	};
+	EExecutionState ExecuteAll();
 
 	LockFree::Collection<BaseTask, EState> state_ = { EState::Unlocked };
 	LockFree::Index reverse_head_ = LockFree::kInvalidIndex;
+
+	template<typename T> friend struct ResourceAccessScope;
 };
 
 template<typename T>
@@ -73,16 +97,56 @@ public:
 			future->Done(function(Get()));
 		}
 
-		if (!UnlockIfNoneEnqueued())
+		ContinueSharing();
+
+		return future;
+	}
+
+	template<typename F>
+	void RedirectWhenAvailible(F&& function LOCATION_PARAM)
+	{
+		TRefCountPtr<BaseTask> task = TaskSystem::InitializeTaskInner(
+			[function = std::forward<F>(function)](BaseTask&) { function(); },
+			{}, enum_or(ETaskFlags::DontExecute, ETaskFlags::RedirectExecutrionForGuardedResource)
+			LOCATION_PASS);
+		const bool locked_by_this = TryLockAndEnqueue(*task);
+		if (locked_by_this)
 		{
 			TriggerAsyncExecution();
 		}
-
-		return future;
 	}
 
 private:
 	T& Get() { return resource_; }
 
 	T resource_;
+
+	friend ResourceAccessScope<T>;
+};
+
+template<typename T>
+struct ResourceAccessScope
+{
+	ResourceAccessScope(TRefCountPtr<GuardedResource<T>> locked_resource)
+		: resource_(std::move(locked_resource))
+	{
+		assert(resource_ && resource_->IsLocked());
+	}
+
+	ResourceAccessScope(ResourceAccessScope&& other)
+		: resource_(std::move(other.resource_))
+	{}
+	
+	T& Get() { return resource_->Get(); }
+
+	~ResourceAccessScope()
+	{
+		if (resource_)
+		{
+			resource_->ContinueSharing();
+		}
+	}
+
+private:
+	TRefCountPtr<GuardedResource<T>> resource_;
 };

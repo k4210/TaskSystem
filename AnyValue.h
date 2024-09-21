@@ -15,34 +15,6 @@ struct AnyValue
 		return (sizeof(T) <= Size) && (alignof(T) <= alignof(void*));
 	}
 
-private:
-
-	static_assert(Size >= sizeof(void*));
-	std::aligned_storage_t<Size, alignof(void*)> data_;
-	ResultDeleterPtr deleter_ = nullptr;
-
-	template<typename T> T* InternalStoragePointer()
-	{
-		static_assert(IsStoredInline<T>());
-		return reinterpret_cast<T*>(&data_);
-	}
-
-	template<typename T> const T* InternalStoragePointer() const
-	{
-		static_assert(IsStoredInline<T>());
-		return reinterpret_cast<const T*>(&data_);
-	}
-
-	template<typename T>
-	struct DeleterHelper
-	{
-		static void Delete(AnyValue& val)
-		{
-			val.InternalStoragePointer<T>()->~T();
-		}
-	};
-
-public:
 	template<typename T> void Store(T&& value)
 	{
 		assert(!deleter_);
@@ -81,4 +53,30 @@ public:
 	{
 		Reset();
 	}
+
+private:
+	static_assert(Size >= sizeof(void*));
+	std::aligned_storage_t<Size, alignof(void*)> data_;
+	ResultDeleterPtr deleter_ = nullptr;
+
+	template<typename T> T* InternalStoragePointer()
+	{
+		static_assert(IsStoredInline<T>());
+		return reinterpret_cast<T*>(&data_);
+	}
+
+	template<typename T> const T* InternalStoragePointer() const
+	{
+		static_assert(IsStoredInline<T>());
+		return reinterpret_cast<const T*>(&data_);
+	}
+
+	template<typename T>
+	struct DeleterHelper
+	{
+		static void Delete(AnyValue& val)
+		{
+			val.InternalStoragePointer<T>()->~T();
+		}
+	};
 };

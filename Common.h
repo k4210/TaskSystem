@@ -38,3 +38,11 @@ constexpr bool enum_has_all(EnumType value, EnumType looking_for)
 	const IntType to_check = static_cast<IntType>(looking_for);
 	return (static_cast<IntType>(value) & to_check) == to_check;
 }
+
+template<class EnumType>
+constexpr EnumType enum_or(EnumType a, EnumType b)
+{
+	static_assert(std::is_enum_v<EnumType>);
+	using IntType = std::underlying_type_t<EnumType>;
+	return static_cast<EnumType>(static_cast<IntType>(a) | static_cast<IntType>(b));
+}

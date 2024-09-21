@@ -1,6 +1,6 @@
 #pragma once
 
-#include "BaseTask.h"
+#include "Future.h"
 #include <array>
 #include <optional>
 #include <type_traits>
@@ -13,25 +13,19 @@ class BaseTask : public GenericFuture
 public:
 	static std::span<BaseTask> GetPoolSpan();
 
-	uint16 GetNumberOfPendingPrerequires() const;
-
-#pragma region protected
-protected:
-
+	void OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency);
 	void Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
-	void OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency);
+	ETaskFlags GetFlags() const { return flag_; }
+#pragma region protected
+protected:
+	friend class TaskSystem;
 
 	std::atomic<uint16> prerequires_ = 0;
 	ETaskFlags flag_ = ETaskFlags::None;
 
 	std::function<void(BaseTask&)> function_;
 	DEBUG_CODE(std::source_location source;)
-
-	friend TRefCounted<BaseTask>;
-	friend class TaskSystem;
-	friend Gate;
-	friend GuardedResourceBase;
 #pragma endregion
 };
 
@@ -50,47 +44,6 @@ namespace Coroutine
 {
 	class DetachHandle;
 }
-
-struct DependencyNode
-{
-	static std::span<DependencyNode> GetPoolSpan();
-#if !defined(NDEBUG)
-	void OnReturnToPool()
-	{
-		assert(!task_);
-	}
-#endif
-	TRefCountPoolPtr<BaseTask> task_;
-
-	LockFree::Index next_ = LockFree::kInvalidIndex;
-};
-
-struct TaskSystemGlobals
-{
-	Pool<BaseTask, 1024> task_pool_;
-	Pool<DependencyNode, 4096> dependency_pool_;
-	Pool<GenericFuture, 1024> future_pool_;
-	LockFree::Stack<BaseTask> ready_to_execute_;
-	LockFree::Stack<BaseTask> ready_to_execute_named0;
-	LockFree::Stack<BaseTask> ready_to_execute_named1;
-
-	std::array<std::thread, 16> threads_;
-	bool working_ = false;
-	std::atomic<uint8> used_threads_ = 0;
-
-	LockFree::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
-	{
-		if (enum_has_any(flag, ETaskFlags::NamedThread0))
-		{
-			return ready_to_execute_named0;
-		}
-		else if (enum_has_any(flag, ETaskFlags::NamedThread1))
-		{
-			return ready_to_execute_named1;
-		}
-		return ready_to_execute_;
-	}
-};
 
 class TaskSystem
 {
@@ -134,8 +87,6 @@ public:
 		static_assert(sizeof(GenericFuture) == sizeof(Future<T>));
 		return MakeGenericFuture().Cast<Future<T>>();
 	}
-
-	static TaskSystemGlobals& GetGlobals();
 
 #pragma region private
 private:

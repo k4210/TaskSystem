@@ -40,11 +40,11 @@ TDetachCoroutine CoroutineTest(int32 in_val)
 	//co_return val1 + val2 + val3;
 };
 
-#define TASK_TEST 0
-#define COROUTINE_TEST 0
-#define NAMED_THREAD_TEST 0
+#define TASK_TEST 1
+#define COROUTINE_TEST 1
+#define NAMED_THREAD_TEST 1
 #define GUARDED_TEST 1
-#define GENERATOR_TEST 0
+#define GENERATOR_TEST 1
 
 int main()
 {
@@ -204,15 +204,15 @@ int main()
 					}
 				}
 			};
-		std::atomic<bool> active0 = true;
+		std::atomic<bool> active2 = true;
 		std::atomic<bool> active1 = true;
-		std::thread named0(body, ETaskFlags::NamedThread0, &active0);
+		std::thread named2(body, ETaskFlags::NamedThread2, &active2);
 		std::thread named1(body, ETaskFlags::NamedThread1, &active1);
-		TaskSystem::InitializeTask([]{ std::cout << "Yada0\n"; }, {}, ETaskFlags::NamedThread0);
+		TaskSystem::InitializeTask([]{ std::cout << "Yada2\n"; }, {}, ETaskFlags::NamedThread2);
 		TaskSystem::InitializeTask([]{ std::cout << "Yada1\n"; }, {}, ETaskFlags::NamedThread1);
-		while (active0 || active1) { std::this_thread::yield(); }
+		while (active2 || active1) { std::this_thread::yield(); }
 		working = false;
-		named0.join();
+		named2.join();
 		named1.join();
 	}
 #endif
@@ -232,10 +232,23 @@ int main()
 				.name = "guarded test",
 				.included_cleanup = WaitForTasks
 			});
-		resource->UseWhenAvailible([](int32 res)
+		resource->UseWhenAvailible([](int32 res) { assert(res == 512 * 64); });
+		PerformTest([&](uint32)
 			{
-				assert(res == 512 * 64);
+				TaskSystem::AsyncResume([](TRefCountPtr<GuardedResource<int32>> resource) -> TDetachCoroutine
+					{
+						{
+							ResourceAccessScope<int32> guard = co_await resource;
+							guard.Get()--;
+						}
+					}(resource));
+			}, TestDetails
+			{
+				.inner_num = 512,
+				.name = "Coroutines guarded res",
+				.included_cleanup = WaitForTasks,
 			});
+		resource->UseWhenAvailible([](int32 res) { assert(res == 0); });
 	}
 #endif
 	TaskSystem::StopWorkerThreads();
