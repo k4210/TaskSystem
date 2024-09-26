@@ -45,15 +45,6 @@ namespace Coroutine
 		}
 
 	private:
-		friend class TaskSystem;
-		std::coroutine_handle<> PassAndReset() //workaround for std::function problem (args are copied, not moved0
-		{
-			assert(handle_);
-			std::coroutine_handle<> handle = handle_;
-			handle_ = nullptr;
-			return handle;
-		}
-
 		std::coroutine_handle<> handle_;
 	};
 

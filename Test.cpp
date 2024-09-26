@@ -2,6 +2,7 @@
 #include "Task.h"
 #include "GuardedResource.h"
 #include "Test.h"
+#include "AccessSynchronizer.h"
 #include <array>
 #include <chrono>
 #include <iostream>
@@ -40,10 +41,18 @@ TDetachCoroutine CoroutineTest(int32 in_val)
 	//co_return val1 + val2 + val3;
 };
 
+class SampleAsset : public TRefCounted<SampleAsset>
+{
+public:
+	bool locked_ = false;
+	int32 data_ = 0;
+	AccessSynchronizer synchronizer_;
+};
+
 #define TASK_TEST 1
 #define COROUTINE_TEST 1
 #define NAMED_THREAD_TEST 1
-#define GUARDED_TEST 1
+#define GUARDED_TEST 0
 #define GENERATOR_TEST 1
 
 int main()
@@ -251,6 +260,46 @@ int main()
 		resource->UseWhenAvailible([](int32 res) { assert(res == 0); });
 	}
 #endif
+	{
+		TRefCountPtr<SampleAsset> asset(new SampleAsset{});
+		TRefCountPtr<SampleAsset> asset2(new SampleAsset{});
+		PerformTest([&](uint32)
+			{
+				TaskSystem::InitializeTaskOn([&](SampleAsset& sample)
+					{
+						assert(!sample.locked_);
+						sample.locked_ = true;
+						sample.data_++;
+						sample.locked_ = false;
+					},
+					asset, ETaskFlags:: TryExecuteImmediate);
+			}, TestDetails
+			{
+				.name = "synchronizer test",
+				.included_cleanup = WaitForTasks
+			});
+			assert(static_cast<uint32>(asset->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
+		PerformTest([&](uint32)
+			{
+				TaskSystem::AsyncResume([](TRefCountPtr<SampleAsset> in_asset, TRefCountPtr<SampleAsset> in_asset2) -> TDetachCoroutine
+					{
+						{
+							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset;
+							guard.Get().data_--;
+						}
+						{
+							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset2;
+							guard.Get().data_++;
+						}
+					}(asset, asset2));
+			}, TestDetails
+			{
+				.inner_num = 512,
+				.name = "Coroutines guarded res",
+				.included_cleanup = WaitForTasks,
+			});
+	}
+
 	TaskSystem::StopWorkerThreads();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 
@@ -279,7 +328,7 @@ int main()
 		generator.Destroy();
 		std::cout << "\nGenerator test done\n";
 	}
-	Coroutine::detail::ensure_allocator_free();
 #endif
+	Coroutine::detail::ensure_allocator_free();
 	return 0;
 }

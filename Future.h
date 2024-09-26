@@ -13,8 +13,8 @@ enum class ETaskFlags : uint8
 {
 	None = 0,
 	TryExecuteImmediate = 1,
-	DontExecute = 2,
-	RedirectExecutrionForGuardedResource = 4,
+	//DontExecute = 2,
+	//RedirectExecutrionForGuardedResource = 4,
 
 	NamedThread5 = 8,
 	NamedThread4 = 16,
@@ -53,7 +53,6 @@ public:
 	static std::span<GenericFuture> GetPoolSpan();
 
 	LockFree::Index next_ = LockFree::kInvalidIndex;
-protected:
 #if !defined(NDEBUG)
 	void OnReturnToPool()
 	{
@@ -61,6 +60,7 @@ protected:
 		assert(old_state != ETaskState::Nonexistent_Pooled);
 	}
 #endif
+protected:
 
 	Gate gate_;
 	AnyValue<6 * sizeof(uint8*)> result_;

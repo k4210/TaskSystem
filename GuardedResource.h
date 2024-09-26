@@ -2,7 +2,7 @@
 
 #include "Task.h"
 #include <type_traits>
-
+/*
 template<typename T> struct ResourceAccessScope;
 
 class GuardedResourceBase : public TRefCounted<GuardedResourceBase>
@@ -64,7 +64,7 @@ public:
 		bool locked_by_this = TryLock();
 		if (!locked_by_this)
 		{
-			TRefCountPtr<BaseTask> task = TaskSystem::InitializeTaskInner([function = std::forward<F>(function),
+			TRefCountPtr<BaseTask> task = TaskSystem::CreateTask([function = std::forward<F>(function),
 				resource = TRefCountPtr<GuardedResource>(this)]([[maybe_unused]] BaseTask& task) mutable
 				{
 					if constexpr (std::is_void_v<ReturnType>)
@@ -77,7 +77,8 @@ public:
 					}
 					resource = nullptr;
 				},
-				{}, ETaskFlags::DontExecute LOCATION_PASS);
+				ETaskFlags::None LOCATION_PASS);
+			// Dont call HandlePrerequires
 			locked_by_this = TryLockAndEnqueue(*task);
 			if (locked_by_this)
 			{
@@ -105,10 +106,10 @@ public:
 	template<typename F>
 	void RedirectWhenAvailible(F&& function LOCATION_PARAM)
 	{
-		TRefCountPtr<BaseTask> task = TaskSystem::InitializeTaskInner(
+		TRefCountPtr<BaseTask> task = TaskSystem::CreateTask(
 			[function = std::forward<F>(function)](BaseTask&) { function(); },
-			{}, enum_or(ETaskFlags::DontExecute, ETaskFlags::RedirectExecutrionForGuardedResource)
-			LOCATION_PASS);
+			ETaskFlags::RedirectExecutrionForGuardedResource LOCATION_PASS);
+		// Dont call HandlePrerequires
 		const bool locked_by_this = TryLockAndEnqueue(*task);
 		if (locked_by_this)
 		{
@@ -150,3 +151,4 @@ struct ResourceAccessScope
 private:
 	TRefCountPtr<GuardedResource<T>> resource_;
 };
+*/

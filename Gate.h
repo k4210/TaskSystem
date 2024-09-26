@@ -12,6 +12,7 @@ enum class ETaskState : uint8
 	Nonexistent_Pooled,
 #endif
 	PendingOrExecuting,
+	ReleasedDependencies, // still working
 	Done,
 	DoneUnconsumedResult,
 };

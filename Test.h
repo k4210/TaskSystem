@@ -9,7 +9,7 @@ struct TestDetails
 {
 	uint32 inner_num = 256;
 
-	uint32 outer_num = 64;
+	uint32 outer_num = 128;
 
 	uint32 num_per_body = 1; // Only for stats. How many times the operation is executed by body.
 

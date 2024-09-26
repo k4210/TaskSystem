@@ -29,6 +29,7 @@ struct TaskSystemGlobals
 	}
 };
 static TaskSystemGlobals globals;
+thread_local static BaseTask* current_task = nullptr;
 
 void BaseTask::OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
@@ -181,8 +182,9 @@ bool TaskSystem::ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active)
 
 void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
-	assert(GetState() == ETaskState::PendingOrExecuting);
-	assert(new_state == ETaskState::Done || new_state == ETaskState::DoneUnconsumedResult);
+	assert(GetState() == ETaskState::PendingOrExecuting || GetState() == ETaskState::ReleasedDependencies);
+	assert(new_state == ETaskState::Done || new_state == ETaskState::DoneUnconsumedResult 
+		|| new_state == ETaskState::ReleasedDependencies);
 
 	DependencyNode* head = nullptr;
 	DependencyNode* tail = nullptr;
@@ -211,12 +213,16 @@ void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 	assert(!prerequires_);
 	assert(function_);
+	assert(!current_task);
 
+	current_task = this;
 	function_(*this);
-	function_ = nullptr;
+	current_task = nullptr;
 
 	const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
 	gate_.Done(new_state, out_first_ready_dependency);
+
+	function_ = nullptr;
 }
 
 void TaskSystem::OnReadyToExecute(BaseTask& task)
@@ -240,53 +246,55 @@ TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
 	return future;
 }
 
-TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTask&)> function, std::span<Gate*> prerequiers, ETaskFlags flags
+TRefCountPtr<BaseTask> TaskSystem::CreateTask(std::move_only_function<void(BaseTask&)> function, ETaskFlags flags
 	LOCATION_PARAM_IMPL)
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
+	assert(task);
 	DEBUG_CODE(task->source = location;)
 	task->flag_ = flags;
 	task->function_ = std::move(function);
 	assert(task->gate_.IsEmpty());
 	const ETaskState old_state = task->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);
 	assert(old_state == ETaskState::Nonexistent_Pooled);
-	task->prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
+	assert(task->prerequires_ == 0);
+	return task;
+}
+
+void TaskSystem::HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers)
+{
+	task.prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
 
 	auto ProcessOnReady = [&]()
-	{
-		if (enum_has_any(flags, ETaskFlags::DontExecute))
 		{
-			return;
-		}
-		if (enum_has_any(flags, ETaskFlags::TryExecuteImmediate))
-		{
-			task->Execute();
-		}
-		else
-		{
-			OnReadyToExecute(*task);
-		}
-	};
+			if (enum_has_any(task.GetFlags(), ETaskFlags::TryExecuteImmediate))
+			{
+				task.Execute();
+			}
+			else
+			{
+				OnReadyToExecute(task);
+			}
+		};
 
 	if (!prerequiers.size())
 	{
 		ProcessOnReady();
-		return std::move(task);
+		return;
 	}
 
 	uint16 inactive_prereq = 0;
 	DependencyNode* node = nullptr;
 	for (Gate* prereq : prerequiers)
 	{
-		assert(prereq);
+		if (!prereq || (prereq->GetState() != ETaskState::PendingOrExecuting))
+		{
+			inactive_prereq++;
+			continue;
+		}
 
 		if (!node)
 		{
-			if (prereq->GetState() != ETaskState::PendingOrExecuting)
-			{
-				inactive_prereq++;
-				continue;
-			}
 			node = &globals.dependency_pool_.Acquire();
 			node->task_ = task;
 		}
@@ -309,21 +317,25 @@ TRefCountPtr<BaseTask> TaskSystem::InitializeTaskInner(std::function<void(BaseTa
 
 	if (inactive_prereq)
 	{
-		const uint16 before = task->prerequires_.fetch_sub(inactive_prereq);
+		const uint16 before = task.prerequires_.fetch_sub(inactive_prereq);
 		if (before == inactive_prereq)
 		{
-			assert(task->prerequires_ == 0);
+			assert(task.prerequires_ == 0);
 			ProcessOnReady();
 		}
 	}
 
-	return task;
 }
 
 void TaskSystem::AsyncResume(Coroutine::DetachHandle handle LOCATION_PARAM_IMPL)
 {
-	InitializeTask([handle = handle.PassAndReset()]
+	InitializeTask([handle = std::move(handle)]() mutable
 		{
-			handle.resume();
+			handle.ResumeAndDetach();
 		}, {}, ETaskFlags::None LOCATION_PASS);
+}
+
+BaseTask* TaskSystem::GetCurrentTask()
+{
+	return current_task;
 }

@@ -65,10 +65,10 @@ public:
 
 	TRefCountPtr() = default;
 
-	TRefCountPtr(ReferencedType* InReference)
+	TRefCountPtr(ReferencedType* InReference, bool add_ref = true)
 	{
 		Reference = InReference;
-		if (Reference)
+		if (Reference && add_ref)
 		{
 			Reference->AddRef();
 		}
@@ -93,40 +93,6 @@ public:
 		assert(!Reference || (Reference->GetRefCount() >= 1));
 	}
 
-	/* Something is wrong with this ? 
-	template<typename OtherType>
-	explicit TRefCountPtr(TRefCountPtr<OtherType>&& Move)
-	{
-		Reference = static_cast<ReferencedType*>(Move.Get());
-		Move.Reference = nullptr;
-	}
-	*/
-
-	template<typename OtherType>
-	TRefCountPtr<OtherType> Cast() &&
-	{
-		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
-		TRefCountPtr<OtherType> other;
-		other.Reference = static_cast<OtherType*>(Get());
-		Reference = nullptr;
-		return other;
-	}
-
-	template<typename OtherType>
-	TRefCountPtr<OtherType> Cast() &
-	{
-		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
-		return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
-	}
-
-	~TRefCountPtr()
-	{
-		if (Reference)
-		{
-			Reference->Release();
-		}
-	}
-
 	TRefCountPtr& operator=(ReferencedType* InReference)
 	{
 		if (Reference != InReference)
@@ -145,22 +111,11 @@ public:
 		}
 		return *this;
 	}
-	/*
-	TRefCountPtr& operator=(std::nullptr_t)
-	{
-		if (Reference)
-		{
-			Reference->Release();
-			Reference = nullptr;
-		}
-		return *this;
-	}
-	
-	TRefCountPtr& operator=(const TRefCountPtr InPtr)
+
+	TRefCountPtr& operator=(const TRefCountPtr& InPtr)
 	{
 		return *this = InPtr.Get();
 	}
-	*/
 
 	TRefCountPtr& operator=(TRefCountPtr&& InPtr)
 	{
@@ -172,6 +127,31 @@ public:
 			OldReference->Release();
 		}
 		return *this;
+	}
+
+	template<typename OtherType>
+	TRefCountPtr<OtherType> Cast()&&
+	{
+		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
+		TRefCountPtr<OtherType> other;
+		other.Reference = static_cast<OtherType*>(Get());
+		Reference = nullptr;
+		return other;
+	}
+
+	template<typename OtherType>
+	TRefCountPtr<OtherType> Cast()&
+	{
+		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
+		return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
+	}
+
+	~TRefCountPtr()
+	{
+		if (Reference)
+		{
+			Reference->Release();
+		}
 	}
 
 	friend void swap(TRefCountPtr& A, TRefCountPtr& B)

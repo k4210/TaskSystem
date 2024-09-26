@@ -1,5 +1,5 @@
 #include "GuardedResource.h"
-
+/*
 bool GuardedResourceBase::TryLockAndEnqueue(BaseTask& node)
 {
 	node.AddRef();
@@ -63,3 +63,4 @@ void GuardedResourceBase::TriggerAsyncExecution()
 			} while (!resource->UnlockIfNoneEnqueued());
 		});
 }
+*/

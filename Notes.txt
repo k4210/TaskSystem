@@ -1,4 +1,4 @@
 TODO:
 
-- assert no deadlocks, single guarded reaource
+- inline dependency instance in gate
 - cleanup

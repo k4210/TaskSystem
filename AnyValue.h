@@ -56,7 +56,7 @@ struct AnyValue
 
 private:
 	static_assert(Size >= sizeof(void*));
-	std::aligned_storage_t<Size, alignof(void*)> data_;
+	alignas(void*) std::byte data_[Size];
 	ResultDeleterPtr deleter_ = nullptr;
 
 	template<typename T> T* InternalStoragePointer()
