@@ -72,6 +72,7 @@ public:
 		{
 			Reference->AddRef();
 		}
+		assert(!Reference || Reference->GetRefCount());
 	}
 
 	TRefCountPtr(ReferencedType& InReference)

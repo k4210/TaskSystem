@@ -1,34 +1,14 @@
 #pragma once
 
 #include "Future.h"
+#include "BaseTask.h"
+#include "AccessSynchronizer.h"
 #include <array>
 #include <optional>
 #include <type_traits>
 #include <span>
 #include <concepts>
 #include <thread>
-
-class BaseTask : public GenericFuture
-{
-public:
-	static std::span<BaseTask> GetPoolSpan();
-
-	void OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency);
-	void Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
-
-	ETaskFlags GetFlags() const { return flag_; }
-#pragma region protected
-protected:
-	friend class TaskSystem;
-	friend struct AccessSynchronizer;
-
-	std::atomic<uint16> prerequires_ = 0;
-	ETaskFlags flag_ = ETaskFlags::None;
-
-	std::move_only_function<void(BaseTask&)> function_;
-	DEBUG_CODE(std::source_location source;)
-#pragma endregion
-};
 
 template<typename T = void>
 class Task : public BaseTask, public CommonSpecialization<T, Task<T>>
@@ -110,6 +90,8 @@ public:
 			void operator()([[maybe_unused]] BaseTask& task)
 			{
 				assert(ptr_);
+				assert(!AccessSynchronizer::is_any_asset_locked_); //If any other asset is locked it means there is a risk of deadlock
+				DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = true;)
 				if constexpr (std::is_void_v<ResultType>)
 				{
 					std::invoke(function_, *ptr_);
@@ -118,6 +100,8 @@ public:
 				{
 					task.result_.Store(std::invoke(function_, *ptr_));
 				}
+				assert(AccessSynchronizer::is_any_asset_locked_);
+				DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
 				assert(!task_);
 				task_ = &task;
 			}
@@ -127,7 +111,7 @@ public:
 				if (ptr_)
 				{
 					assert(task_);
-					ptr_->synchronizer_.Release(*task_);
+					ptr_->synchronizer_.Release(*task_); //This works because Task::Execute cleans functor at the end
 				}
 				else
 				{
@@ -149,7 +133,7 @@ public:
 	}
 
 	template<class F, class OPtr>
-	static void InitializeResumeTaskOn(F&& functor, OPtr ptr, TRefCountPtr<BaseTask>& out_task, ETaskFlags flags = ETaskFlags::None
+	static void InitializeResumeTaskOn(F&& functor, OPtr ptr, ETaskFlags flags = ETaskFlags::None
 		LOCATION_PARAM)
 	{
 		using ResultType = void;
@@ -162,10 +146,9 @@ public:
 			[function = std::forward<F>(functor)](BaseTask&) mutable {std::invoke(function);}, 
 			flags LOCATION_PASS);
 
-		out_task = task;
-
 		TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task);
 		Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
+		assert(!to_sync || (to_sync->GetState() != ETaskState::Nonexistent_Pooled));
 		Gate* pre_req[] = { to_sync };
 
 		TaskSystem::HandlePrerequires(*task, pre_req);
@@ -177,8 +160,6 @@ public:
 		static_assert(sizeof(GenericFuture) == sizeof(Future<T>));
 		return MakeGenericFuture().Cast<Future<T>>();
 	}
-
-	static BaseTask* GetCurrentTask();
 
 #pragma region private
 private:

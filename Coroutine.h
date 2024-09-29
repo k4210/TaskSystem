@@ -2,7 +2,6 @@
 
 #include "CoroutineHandle.h"
 #include "Task.h"
-#include "GuardedResource.h"
 #include "AccessSynchronizer.h"
 
 namespace Coroutine
@@ -192,70 +191,33 @@ namespace Coroutine
 			};
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
-/*
-		template<typename T>
-		auto await_transform(TRefCountPtr<GuardedResource<T>> resource)
-		{
-			struct TTaskAwaiter
-			{
-				TRefCountPtr<GuardedResource<T>> resource_;
 
-				bool await_ready()
-				{
-					return resource_->TryLock();
-				}
-				void await_suspend(std::coroutine_handle<> handle)
-				{
-					assert(handle);
-					auto resume_coroutine = [handle]()
-						{
-							handle.resume();
-						};
-					resource_->RedirectWhenAvailible(resume_coroutine);
-				}
-				auto await_resume()
-				{
-					return ResourceAccessScope<T>(std::move(resource_));
-				}
-			};
-			assert(resource);
-			return TTaskAwaiter{ std::forward<TRefCountPtr<GuardedResource<T>>>(resource) };
-		}
-*/
 		template<SyncPtr TPtr>
 		auto await_transform(TPtr resource)
 		{
 			struct TTaskAwaiter
 			{
 				TPtr resource_;
-				TRefCountPtr<BaseTask> task_;
 
 				TTaskAwaiter(TPtr resource) : resource_(std::move(resource)) {}
 
 				bool await_ready() 
 				{ 
-					BaseTask* current_task = TaskSystem::GetCurrentTask();
-					assert(current_task);
-					assert(current_task->GetGate()->IsEmpty());
-					const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*current_task);
-					if (sync_with_current)
-					{
-						assert(!task_);
-						task_ = current_task;
-					}
+					BaseTask* local_current_task = BaseTask::GetCurrentTask();
+					assert(local_current_task);
+					assert(local_current_task->GetGate()->IsEmpty());
+					const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task);
 					return sync_with_current;
 				}
 				void await_suspend(std::coroutine_handle<> handle)
 				{
 					assert(handle);
-					assert(!task_);
-					TaskSystem::InitializeResumeTaskOn([handle]() {handle.resume(); }, resource_, task_);
+					TaskSystem::InitializeResumeTaskOn([handle]() {handle.resume(); }, resource_);
 					// assert(task_); here the task may be already moved, because await_resume() was already called
 				}
 				auto await_resume()
 				{
-					assert(task_);
-					return AccessSynchronizerScope<TPtr>{std::move(resource_), std::move(task_)};
+					return AccessSynchronizerScope<TPtr>{std::move(resource_)};
 				}
 			};
 

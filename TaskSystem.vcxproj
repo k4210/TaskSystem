@@ -119,7 +119,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <ExceptionHandling>false</ExceptionHandling>
@@ -135,11 +135,11 @@
   <ItemGroup>
     <ClInclude Include="AccessSynchronizer.h" />
     <ClInclude Include="AnyValue.h" />
+    <ClInclude Include="BaseTask.h" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="Coroutine.h" />
     <ClInclude Include="CoroutineHandle.h" />
     <ClInclude Include="Gate.h" />
-    <ClInclude Include="GuardedResource.h" />
     <ClInclude Include="LockFree.h" />
     <ClInclude Include="Pool.h" />
     <ClInclude Include="Profiling.h" />
@@ -152,7 +152,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AccessSynchronizer.cpp" />
-    <ClCompile Include="GuardedResource.cpp" />
     <ClCompile Include="Task.cpp" />
     <ClCompile Include="Coroutine.cpp" />
     <ClCompile Include="Test.cpp" />

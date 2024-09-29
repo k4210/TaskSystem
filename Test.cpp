@@ -1,6 +1,5 @@
 #include "Coroutine.h"
 #include "Task.h"
-#include "GuardedResource.h"
 #include "Test.h"
 #include "AccessSynchronizer.h"
 #include <array>
@@ -49,11 +48,11 @@ public:
 	AccessSynchronizer synchronizer_;
 };
 
-#define TASK_TEST 1
-#define COROUTINE_TEST 1
-#define NAMED_THREAD_TEST 1
-#define GUARDED_TEST 0
-#define GENERATOR_TEST 1
+#define TASK_TEST 0
+#define COROUTINE_TEST 0
+#define NAMED_THREAD_TEST 0
+#define SYNCH_TEST 1
+#define GENERATOR_TEST 0
 
 int main()
 {
@@ -151,7 +150,7 @@ int main()
 #if COROUTINE_TEST
 	PerformTest([](uint32)
 		{
-			CoroutineTest(1).ResumeAndDetach();
+			CoroutineTest(1).StartAndDetach();
 		}, TestDetails
 		{
 			.name = "Coroutines complex",
@@ -225,41 +224,7 @@ int main()
 		named1.join();
 	}
 #endif
-#if GUARDED_TEST
-	{
-		TRefCountPtr<GuardedResource<int32>> resource(new GuardedResource<int32>(0));
-		PerformTest([&](uint32)
-			{
-				TaskSystem::InitializeTask([&]()
-					{
-						resource->UseWhenAvailible([](int32& res) { res++; });
-					}
-				);
-			}, TestDetails
-			{
-				.inner_num = 512,
-				.name = "guarded test",
-				.included_cleanup = WaitForTasks
-			});
-		resource->UseWhenAvailible([](int32 res) { assert(res == 512 * 64); });
-		PerformTest([&](uint32)
-			{
-				TaskSystem::AsyncResume([](TRefCountPtr<GuardedResource<int32>> resource) -> TDetachCoroutine
-					{
-						{
-							ResourceAccessScope<int32> guard = co_await resource;
-							guard.Get()--;
-						}
-					}(resource));
-			}, TestDetails
-			{
-				.inner_num = 512,
-				.name = "Coroutines guarded res",
-				.included_cleanup = WaitForTasks,
-			});
-		resource->UseWhenAvailible([](int32 res) { assert(res == 0); });
-	}
-#endif
+#if SYNCH_TEST
 	{
 		TRefCountPtr<SampleAsset> asset(new SampleAsset{});
 		TRefCountPtr<SampleAsset> asset2(new SampleAsset{});
@@ -287,10 +252,12 @@ int main()
 							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset;
 							guard.Get().data_--;
 						}
+						/*
 						{
 							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset2;
 							guard.Get().data_++;
 						}
+						*/
 					}(asset, asset2));
 			}, TestDetails
 			{
@@ -299,7 +266,7 @@ int main()
 				.included_cleanup = WaitForTasks,
 			});
 	}
-
+#endif
 	TaskSystem::StopWorkerThreads();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 

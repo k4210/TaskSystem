@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Task.h"
+#include "BaseTask.h"
 #include <concepts>
 
 struct AccessSynchronizer
@@ -48,11 +48,10 @@ concept SyncPtr = requires(T ptr)
 template<SyncPtr TPtr>
 struct AccessSynchronizerScope
 {
-	AccessSynchronizerScope(TPtr resource, TRefCountPtr<BaseTask> task)
-		: resource_(std::move(resource)), task_(std::move(task))
+	AccessSynchronizerScope(TPtr resource) 
+		: resource_(std::move(resource))
 	{
 		assert(resource_);
-		assert(task_);
 		assert(!AccessSynchronizer::is_any_asset_locked_); //If any other asset is locked it means there is a risk of deadlock
 		DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = true;)
 	}
@@ -61,16 +60,21 @@ struct AccessSynchronizerScope
 
 	~AccessSynchronizerScope()
 	{
-		resource_->synchronizer_.Release(*task_);
-		Gate* gate = task_->GetGate();
+		BaseTask* local_current_task = BaseTask::GetCurrentTask();
+		assert(local_current_task);
+		Gate* gate = local_current_task->GetGate();
 		assert(gate);
-		assert(gate->GetState() == ETaskState::PendingOrExecuting || gate->GetState() == ETaskState::ReleasedDependencies);
-		gate->Done(ETaskState::ReleasedDependencies);
+		assert(gate->GetState() == ETaskState::PendingOrExecuting 
+			|| gate->GetState() == ETaskState::ReleasedDependencies);
 		assert(AccessSynchronizer::is_any_asset_locked_);
 		DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
+		const uint32 unblocked = gate->Done(ETaskState::ReleasedDependencies);
+		assert(unblocked <= 1);
+		resource_->synchronizer_.Release(*local_current_task);
+		assert(gate->IsEmpty());
+		gate->Done(ETaskState::ReleasedDependencies); // Just in case
 	}
 
 private:
 	TPtr resource_;
-	TRefCountPtr<BaseTask> task_;
 };

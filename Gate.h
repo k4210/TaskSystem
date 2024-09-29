@@ -64,7 +64,8 @@ struct Gate
 		return depending_.SetFastOnEmpty(new_state);
 	}
 
-	void Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+	// return number of unblocked tasks
+	uint32 Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 	bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
 	{

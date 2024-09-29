@@ -32,7 +32,7 @@ namespace Coroutine
 		}
 		DetachHandle& operator=(DetachHandle&&) = delete;
 
-		void ResumeAndDetach()
+		void StartAndDetach()
 		{
 			assert(handle_);
 			handle_.resume();

@@ -4,9 +4,21 @@
 
 struct TaskSystemGlobals
 {
-	Pool<BaseTask, 1024> task_pool_;
-	Pool<DependencyNode, 4096> dependency_pool_;
-	Pool<GenericFuture, 1024> future_pool_;
+	Pool<BaseTask, 2048
+#if THREAD_SMART_POOL
+		, 16, 32, 48
+#endif
+		> task_pool_;
+	Pool<DependencyNode, 4096
+#if THREAD_SMART_POOL
+		, 16, 32, 48
+#endif
+		> dependency_pool_;
+	Pool<GenericFuture, 2048
+#if THREAD_SMART_POOL
+		, 16, 32, 48
+#endif
+		> future_pool_;
 	LockFree::Stack<BaseTask> ready_to_execute_;
 	std::array<LockFree::Stack<BaseTask>, 5>  ready_to_execute_named;
 
@@ -61,8 +73,8 @@ std::span<GenericFuture> GenericFuture::GetPoolSpan()
 
 void GenericFuture::OnRefCountZero()
 {
-	assert(gate_.IsEmpty());
 	const ETaskState state = gate_.GetState();
+	assert(gate_.IsEmpty());
 	assert(state != ETaskState::Nonexistent_Pooled);
 	if (state == ETaskState::DoneUnconsumedResult)
 	{
@@ -83,20 +95,26 @@ void GenericFuture::OnRefCountZero()
 	{
 		BaseTask& task = *static_cast<BaseTask*>(this);
 		assert(globals.task_pool_.BelonsTo(task));
+		assert(!task.function_);
+		assert(state != ETaskState::PendingOrExecuting);
 		globals.task_pool_.Return(task);
 	}
 }
+
+thread_local uint16 t_worker_thread_idx = LockFree::kInvalidIndex;
 
 void TaskSystem::StartWorkerThreads()
 {
 	globals.working_ = true;
 
-	auto loop_body = []()
+	auto loop_body = [](uint16 index)
 	{
+		t_worker_thread_idx = index;
 		bool marked_as_used = false;
 		while (true)
 		{
-			BaseTask* task = globals.ready_to_execute_.Pop();
+			BaseTask* pop_task = globals.ready_to_execute_.Pop();
+			TRefCountPtr<BaseTask> task(pop_task, false);
 			if (task)
 			{
 				if (!marked_as_used)
@@ -104,16 +122,13 @@ void TaskSystem::StartWorkerThreads()
 					marked_as_used = true;
 					globals.used_threads_.fetch_add(1, std::memory_order_relaxed);
 				}
-				TRefCountPtr<BaseTask> next = nullptr;
-				task->Execute(&next);
-				task->Release();
 
-				while (next)
+				do
 				{
-					TRefCountPtr<BaseTask> other_next = nullptr;
-					next->Execute(&other_next);
-					next = std::move(other_next);
-				}
+					TRefCountPtr<BaseTask> next = nullptr;
+					task->Execute(&next);
+					task = std::move(next);
+				} while (task);
 			}
 			else
 			{
@@ -135,9 +150,11 @@ void TaskSystem::StartWorkerThreads()
 		}
 	};
 
+	uint16 index = 0;
 	for (std::thread& thread : globals.threads_)
 	{
-		thread = std::thread(loop_body);
+		thread = std::thread(loop_body, index);
+		index++;
 	}
 }
 
@@ -180,7 +197,7 @@ bool TaskSystem::ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active)
 	return !!task;
 }
 
-void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
+uint32 Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
 	assert(GetState() == ETaskState::PendingOrExecuting || GetState() == ETaskState::ReleasedDependencies);
 	assert(new_state == ETaskState::Done || new_state == ETaskState::DoneUnconsumedResult 
@@ -188,6 +205,7 @@ void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_de
 
 	DependencyNode* head = nullptr;
 	DependencyNode* tail = nullptr;
+	uint16 chain_len = 0;
 	auto handle_dependency = [&](DependencyNode& node)
 		{
 			if (!head)
@@ -197,15 +215,19 @@ void Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_de
 			tail = &node;
 			node.task_->OnPrerequireDone(out_first_ready_dependency);
 			node.task_ = nullptr;
+			chain_len++;
 		};
 	
-	depending_.CloseAndConsume(new_state, handle_dependency);
+	ETaskState old_state = depending_.CloseAndConsume(new_state, handle_dependency);
+	assert(old_state == ETaskState::PendingOrExecuting || old_state == ETaskState::ReleasedDependencies);
 
 	if (head)
 	{
 		assert(tail);
-		globals.dependency_pool_.ReturnChain(*head, *tail);
+		globals.dependency_pool_.ReturnChain(*head, *tail, chain_len);
 	}
+
+	return chain_len;
 }
 
 void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
@@ -222,7 +244,8 @@ void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
 	gate_.Done(new_state, out_first_ready_dependency);
 
-	function_ = nullptr;
+	function_ = nullptr; //Moved to the end, because of InitializeTaskOn::LambdaObj
+	assert(!function_);
 }
 
 void TaskSystem::OnReadyToExecute(BaseTask& task)
@@ -251,6 +274,7 @@ TRefCountPtr<BaseTask> TaskSystem::CreateTask(std::move_only_function<void(BaseT
 {
 	TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 	assert(task);
+	assert(!task->function_);
 	DEBUG_CODE(task->source = location;)
 	task->flag_ = flags;
 	task->function_ = std::move(function);
@@ -331,11 +355,11 @@ void TaskSystem::AsyncResume(Coroutine::DetachHandle handle LOCATION_PARAM_IMPL)
 {
 	InitializeTask([handle = std::move(handle)]() mutable
 		{
-			handle.ResumeAndDetach();
+			handle.StartAndDetach();
 		}, {}, ETaskFlags::None LOCATION_PASS);
 }
 
-BaseTask* TaskSystem::GetCurrentTask()
+BaseTask* BaseTask::GetCurrentTask()
 {
 	return current_task;
 }

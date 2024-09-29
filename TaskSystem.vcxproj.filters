@@ -54,13 +54,13 @@
     <ClInclude Include="Future.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GuardedResource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Gate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AccessSynchronizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="BaseTask.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -72,9 +72,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Coroutine.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="GuardedResource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="AccessSynchronizer.cpp">

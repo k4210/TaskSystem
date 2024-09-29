@@ -33,6 +33,24 @@ namespace LockFree
 
 		void PushChain(Node& new_head, Node& chain_tail)
 		{
+			assert([&]() -> bool
+				{
+					const Index wanted = GetPoolIndex(chain_tail);
+					Index local = GetPoolIndex(new_head);
+					for (int32 counter = 0; counter < 2048; counter++)
+					{
+						if (local == wanted)
+						{
+							return true;
+						}
+						if (local == kInvalidIndex)
+						{
+							break;
+						}
+						local = FromPoolIndex<Node>(local).next_;
+					}
+					return false;
+				}());
 			const Index idx = GetPoolIndex(new_head);
 			State new_state{ .head = idx };
 			State state = state_.load(std::memory_order_relaxed);
@@ -255,7 +273,9 @@ namespace LockFree
 	private:
 		State GetState() const
 		{
-			return state_.load(std::memory_order_relaxed);
+			return state_.load(
+				//std::memory_order_relaxed
+			);
 		}
 
 		std::atomic<State> state_;
