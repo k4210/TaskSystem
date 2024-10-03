@@ -27,15 +27,13 @@ struct TRefCounted
 		return static_cast<uint32>(NewRefCount);
 	}
 
-	uint32 Release() const
+	void Release() const
 	{
 		const int32 NewRefCount = --RefCount;
 		assert(NewRefCount >= 0);
-		const uint32 Refs = static_cast<uint32>(NewRefCount);
-		if (Refs == 0)
+		if (NewRefCount == 0)
 		{
-			DerivedType* const Derived = const_cast<DerivedType*>(static_cast<const DerivedType*>(this));
-
+			DerivedType* Derived = const_cast<DerivedType*>(static_cast<const DerivedType*>(this));
 			if constexpr (requires { Derived->OnRefCountZero(); })
 			{
 				Derived->OnRefCountZero();
@@ -45,8 +43,6 @@ struct TRefCounted
 				delete Derived;
 			}
 		}
-
-		return Refs;
 	}
 
 	uint32 GetRefCount() const
@@ -200,6 +196,11 @@ public:
 	bool operator==(ReferencedType* B) const
 	{
 		return Get() == B;
+	}
+
+	void ResetNoRelease()
+	{
+		Reference = nullptr;
 	}
 
 private:

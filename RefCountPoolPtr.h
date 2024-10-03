@@ -44,6 +44,11 @@ public:
 		}
 	}
 
+	void ResetNoRelease()
+	{
+		index_ = LockFree::kInvalidIndex;
+	}
+
 #pragma region TRefCountPtr
 	TRefCountPoolPtr(const TRefCountPtr<Node>& other)
 		: TRefCountPoolPtr(other.Get())
@@ -53,6 +58,19 @@ public:
 	{
 		return *this = other.Get();
 	}
+
+	TRefCountPtr<Node> ToRefCountPtr() &
+	{
+		return TRefCountPtr(Get());
+	}
+
+	TRefCountPtr<Node> ToRefCountPtr() &&
+	{
+		Node* node = Get();
+		ResetNoRelease();
+		return TRefCountPtr(node, false);
+	}
+
 #pragma endregion
 	TRefCountPoolPtr& operator=(std::nullptr_t)
 	{

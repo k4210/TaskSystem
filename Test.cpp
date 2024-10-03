@@ -5,6 +5,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -45,14 +46,28 @@ class SampleAsset : public TRefCounted<SampleAsset>
 public:
 	bool locked_ = false;
 	int32 data_ = 0;
+	struct DebugData
+	{
+		int32 thread_idx = 0;
+		int32 task_idx = 0;
+	};
+	std::vector<DebugData> debug_data_;
 	AccessSynchronizer synchronizer_;
+
+	void SaveState()
+	{
+		debug_data_.push_back(DebugData{ 
+			t_worker_thread_idx, 
+			static_cast<int32>(std::distance(BaseTask::GetPoolSpan().data(), BaseTask::GetCurrentTask()))
+		});
+	}
 };
 
-#define TASK_TEST 0
-#define COROUTINE_TEST 0
-#define NAMED_THREAD_TEST 0
+#define TASK_TEST 1
+#define COROUTINE_TEST 1
+#define NAMED_THREAD_TEST 1
 #define SYNCH_TEST 1
-#define GENERATOR_TEST 0
+#define GENERATOR_TEST 1
 
 int main()
 {
@@ -250,24 +265,27 @@ int main()
 					{
 						{
 							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset;
-							guard.Get().data_--;
+							guard.Get().SaveState();
 						}
-						/*
 						{
-							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset2;
-							guard.Get().data_++;
+							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard2 = co_await in_asset2;
+							guard2.Get().SaveState();
 						}
-						*/
 					}(asset, asset2));
 			}, TestDetails
 			{
 				.inner_num = 512,
 				.name = "Coroutines guarded res",
 				.included_cleanup = WaitForTasks,
+				.excluded_cleanup = [&]()
+				{
+					asset->debug_data_.clear();
+					asset2->debug_data_.clear();
+				}
 			});
 	}
 #endif
-	TaskSystem::StopWorkerThreads();
+	TaskSystem::StopWorkerThreadsNoWait();
 	TaskSystem::WaitForWorkerThreadsToJoin();
 
 #if GENERATOR_TEST

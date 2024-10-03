@@ -12,7 +12,7 @@ enum class ETaskState : uint8
 	Nonexistent_Pooled,
 #endif
 	PendingOrExecuting,
-	ReleasedDependencies, // still working
+	PendingOrExecuting_NonBLocking,
 	Done,
 	DoneUnconsumedResult,
 };
@@ -53,6 +53,11 @@ struct Gate
 		return depending_.GetGateState();
 	}
 
+	auto GetInnerState() const
+	{
+		return depending_.GetState();
+	}
+
 	bool IsEmpty() const
 	{
 		return depending_.IsEmpty();
@@ -65,7 +70,7 @@ struct Gate
 	}
 
 	// return number of unblocked tasks
-	uint32 Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+	uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 	bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
 	{

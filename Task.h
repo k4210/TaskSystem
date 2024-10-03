@@ -33,7 +33,7 @@ public:
 
 	static void StartWorkerThreads();
 
-	static void StopWorkerThreads();
+	static void StopWorkerThreadsNoWait();
 
 	static void WaitForWorkerThreadsToJoin();
 
@@ -148,7 +148,8 @@ public:
 
 		TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task);
 		Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
-		assert(!to_sync || (to_sync->GetState() != ETaskState::Nonexistent_Pooled));
+		DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
+		assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
 		Gate* pre_req[] = { to_sync };
 
 		TaskSystem::HandlePrerequires(*task, pre_req);
@@ -170,7 +171,7 @@ private:
 
 	static TRefCountPtr<GenericFuture> MakeGenericFuture();
 
-	static void OnReadyToExecute(BaseTask&);
+	static void OnReadyToExecute(TRefCountPtr<BaseTask> task);
 
 	friend class BaseTask;
 	template<typename T> friend class GuardedResource;

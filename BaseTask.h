@@ -9,7 +9,7 @@ public:
 	static std::span<BaseTask> GetPoolSpan();
 	static BaseTask* GetCurrentTask();
 
-	void OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency);
+	static void OnUnblocked(TRefCountPtr<BaseTask> task, TRefCountPtr<BaseTask>* out_first_ready_dependency);
 	void Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 	ETaskFlags GetFlags() const { return flag_; }

@@ -1,4 +1,5 @@
 TODO:
 
-- inline dependency instance in gate
+- config
+- SyncResourcePtr
 - cleanup

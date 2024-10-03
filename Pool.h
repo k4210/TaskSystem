@@ -75,7 +75,7 @@ private:
 	uint16 size_ = 0;
 };
 
-#define THREAD_SMART_POOL 0
+#define THREAD_SMART_POOL 1
 
 template<typename Node, std::size_t Size
 #if THREAD_SMART_POOL

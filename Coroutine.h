@@ -2,6 +2,7 @@
 
 #include "CoroutineHandle.h"
 #include "Task.h"
+#include "Future.h"
 #include "AccessSynchronizer.h"
 
 namespace Coroutine
@@ -109,49 +110,14 @@ namespace Coroutine
 
 		void unhandled_exception() { assert(false); }
 
-		auto await_transform(std::suspend_never InAwaiter)
-		{
-			return InAwaiter;
-		}
+		auto await_transform(std::suspend_never InAwaiter) { return InAwaiter; }
 
-		auto await_transform(std::suspend_always InAwaiter)
-		{
-			return InAwaiter;
-		}
+		auto await_transform(std::suspend_always InAwaiter) { return InAwaiter; }
 
-		template <std::derived_from<GenericFuture> SpecializedType, typename ReturnType = SpecializedType::ReturnType>
+		template <std::derived_from<GenericFuture> SpecializedType>
 		auto await_transform(TRefCountPtr<SpecializedType>&& InTask)
 		{
-			using AsyncTask = TRefCountPtr<SpecializedType>;
-			struct TTaskAwaiter
-			{
-				AsyncTask inner_task_;
-
-				bool await_ready()
-				{
-					return !inner_task_->IsPendingOrExecuting();
-				}
-				void await_suspend(std::coroutine_handle<> handle)
-				{
-					assert(handle);
-					auto resume_coroutine = [handle]()
-						{
-							handle.resume();
-						};
-					inner_task_->Then(resume_coroutine);
-				}
-				auto await_resume()
-				{
-					assert(!inner_task_->IsPendingOrExecuting());
-					AsyncTask moved_task = std::move(inner_task_);
-					inner_task_ = nullptr;
-					if constexpr (!std::is_void_v<ReturnType>)
-					{
-						return moved_task->DropResult();
-					}
-				}
-			};
-			return TTaskAwaiter{ std::forward<AsyncTask>(InTask) };
+			return GenericFutureAwaiter<SpecializedType>{ InTask };
 		}
 
 		template <typename OtherPromise>
@@ -195,34 +161,7 @@ namespace Coroutine
 		template<SyncPtr TPtr>
 		auto await_transform(TPtr resource)
 		{
-			struct TTaskAwaiter
-			{
-				TPtr resource_;
-
-				TTaskAwaiter(TPtr resource) : resource_(std::move(resource)) {}
-
-				bool await_ready() 
-				{ 
-					BaseTask* local_current_task = BaseTask::GetCurrentTask();
-					assert(local_current_task);
-					assert(local_current_task->GetGate()->IsEmpty());
-					const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task);
-					return sync_with_current;
-				}
-				void await_suspend(std::coroutine_handle<> handle)
-				{
-					assert(handle);
-					TaskSystem::InitializeResumeTaskOn([handle]() {handle.resume(); }, resource_);
-					// assert(task_); here the task may be already moved, because await_resume() was already called
-				}
-				auto await_resume()
-				{
-					return AccessSynchronizerScope<TPtr>{std::move(resource_)};
-				}
-			};
-
-			assert(resource);
-			return TTaskAwaiter( std::move(resource) );
+			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<TPtr>(resource) );
 		}
 	};
 

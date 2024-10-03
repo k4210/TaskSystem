@@ -43,20 +43,21 @@ struct TaskSystemGlobals
 static TaskSystemGlobals globals;
 thread_local static BaseTask* current_task = nullptr;
 
-void BaseTask::OnPrerequireDone(TRefCountPtr<BaseTask>* out_first_ready_dependency)
+void BaseTask::OnUnblocked(TRefCountPtr<BaseTask> task, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
-	assert(prerequires_);
-	uint16 new_count = --prerequires_;
+	assert(task);
+	assert(task->prerequires_);
+	uint16 new_count = --task->prerequires_;
 	if (!new_count)
 	{
-		if (!enum_has_any(flag_, ETaskFlags::NameThreadMask) &&
+		if (!enum_has_any(task->flag_, ETaskFlags::NameThreadMask) &&
 			out_first_ready_dependency && !out_first_ready_dependency->IsValid())
 		{
-			*out_first_ready_dependency = this;
+			*out_first_ready_dependency = std::move(task);
 		}
 		else
 		{
-			TaskSystem::OnReadyToExecute(*this);
+			TaskSystem::OnReadyToExecute(std::move(task));
 		}
 	}
 }
@@ -73,9 +74,10 @@ std::span<GenericFuture> GenericFuture::GetPoolSpan()
 
 void GenericFuture::OnRefCountZero()
 {
+	DEBUG_CODE(auto inner_state = gate_.GetInnerState();)
 	const ETaskState state = gate_.GetState();
-	assert(gate_.IsEmpty());
 	assert(state != ETaskState::Nonexistent_Pooled);
+	assert(gate_.IsEmpty());
 	if (state == ETaskState::DoneUnconsumedResult)
 	{
 		// RefCount is zero, so no other thread has access to the task
@@ -158,7 +160,7 @@ void TaskSystem::StartWorkerThreads()
 	}
 }
 
-void TaskSystem::StopWorkerThreads()
+void TaskSystem::StopWorkerThreadsNoWait()
 {
 	globals.working_ = false;
 }
@@ -180,8 +182,8 @@ void TaskSystem::WaitForWorkerThreadsToJoin()
 	assert(!globals.ready_to_execute_.Pop());
 #if DO_POOL_STATS
 	assert(!globals.task_pool_.GetUsedNum());
-	//std::cout << "Max used tasks: "  << globals.task_pool_.GetMaxUsedNum() << std::endl;
-	//std::cout << "Max used dependency nodes: "<< globals.dependency_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used tasks: "  << globals.task_pool_.GetMaxUsedNum() << std::endl;
+	std::cout << "Max used dependency nodes: "<< globals.dependency_pool_.GetMaxUsedNum() << std::endl;
 #endif
 }
 
@@ -197,11 +199,10 @@ bool TaskSystem::ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active)
 	return !!task;
 }
 
-uint32 Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
+uint32 Gate::Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 {
-	assert(GetState() == ETaskState::PendingOrExecuting || GetState() == ETaskState::ReleasedDependencies);
-	assert(new_state == ETaskState::Done || new_state == ETaskState::DoneUnconsumedResult 
-		|| new_state == ETaskState::ReleasedDependencies);
+	assert(GetState() == ETaskState::PendingOrExecuting
+		|| GetState() == ETaskState::PendingOrExecuting_NonBLocking);
 
 	DependencyNode* head = nullptr;
 	DependencyNode* tail = nullptr;
@@ -213,13 +214,13 @@ uint32 Gate::Done(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_
 				head = &node;
 			}
 			tail = &node;
-			node.task_->OnPrerequireDone(out_first_ready_dependency);
-			node.task_ = nullptr;
+			BaseTask::OnUnblocked(std::move(node.task_).ToRefCountPtr(), out_first_ready_dependency);
 			chain_len++;
 		};
 	
-	ETaskState old_state = depending_.CloseAndConsume(new_state, handle_dependency);
-	assert(old_state == ETaskState::PendingOrExecuting || old_state == ETaskState::ReleasedDependencies);
+	ETaskState old_state = depending_.ConsumeAll(new_state, handle_dependency);
+	assert(old_state == ETaskState::PendingOrExecuting
+		|| old_state == ETaskState::PendingOrExecuting_NonBLocking);
 
 	if (head)
 	{
@@ -236,23 +237,26 @@ void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	assert(!prerequires_);
 	assert(function_);
 	assert(!current_task);
+	assert(GetRefCount());
 
 	current_task = this;
 	function_(*this);
 	current_task = nullptr;
+	assert(GetRefCount());
 
 	const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
-	gate_.Done(new_state, out_first_ready_dependency);
+	gate_.Unblock(new_state, out_first_ready_dependency);
 
 	function_ = nullptr; //Moved to the end, because of InitializeTaskOn::LambdaObj
 	assert(!function_);
+	assert(GetRefCount());
 }
 
-void TaskSystem::OnReadyToExecute(BaseTask& task)
+void TaskSystem::OnReadyToExecute(TRefCountPtr<BaseTask> task)
 {
-	assert(task.gate_.GetState() == ETaskState::PendingOrExecuting);
-	task.AddRef();
-	globals.ReadyStack(task.flag_).Push(task);
+	assert(task->gate_.GetState() == ETaskState::PendingOrExecuting);
+	globals.ReadyStack(task->flag_).Push(*task);
+	task.ResetNoRelease();
 }
 
 std::span<BaseTask> BaseTask::GetPoolSpan()

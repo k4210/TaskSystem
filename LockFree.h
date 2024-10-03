@@ -256,9 +256,9 @@ namespace LockFree
 
 		//Should be called once. Returns prev gate state
 		template<typename Func>
-		Gate CloseAndConsume(const Gate closed, Func& func)
+		Gate ConsumeAll(const Gate new_state, Func& func)
 		{
-			const State old_state = state_.exchange(State{ .gate = closed });
+			const State old_state = state_.exchange(State{ .gate = new_state });
 
 			Index head = old_state.head;
 			while (head != kInvalidIndex)
@@ -270,13 +270,13 @@ namespace LockFree
 			return old_state.gate;
 		}
 
-	private:
 		State GetState() const
 		{
 			return state_.load(
-				//std::memory_order_relaxed
+				std::memory_order_relaxed
 			);
 		}
+	private:
 
 		std::atomic<State> state_;
 	};

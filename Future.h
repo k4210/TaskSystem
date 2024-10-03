@@ -5,6 +5,7 @@
 #include "Pool.h"
 #include "AnyValue.h"
 #include <functional>
+#include <coroutine>
 
 class TaskSystem;
 template<typename T> class Future;
@@ -147,7 +148,7 @@ public:
 		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 		assert(!result_.HasValue());
 		result_.Store(std::forward<T>(val));
-		gate_.Done(ETaskState::DoneUnconsumedResult);
+		gate_.Unblock(ETaskState::DoneUnconsumedResult);
 	}
 };
 
@@ -161,6 +162,36 @@ public:
 	{
 		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 		assert(!result_.HasValue());
-		gate_.Done(ETaskState::Done);
+		gate_.Unblock(ETaskState::Done);
+	}
+};
+
+template <std::derived_from<GenericFuture> SpecializedType, typename ReturnType = SpecializedType::ReturnType>
+struct GenericFutureAwaiter
+{
+	TRefCountPtr<SpecializedType> inner_task_;
+
+	bool await_ready()
+	{
+		return !inner_task_->IsPendingOrExecuting();
+	}
+	void await_suspend(std::coroutine_handle<> handle)
+	{
+		assert(handle);
+		auto resume_coroutine = [handle]()
+			{
+				handle.resume();
+			};
+		inner_task_->Then(resume_coroutine);
+	}
+	auto await_resume()
+	{
+		assert(!inner_task_->IsPendingOrExecuting());
+		TRefCountPtr<SpecializedType> moved_task = std::move(inner_task_);
+		inner_task_ = nullptr;
+		if constexpr (!std::is_void_v<ReturnType>)
+		{
+			return moved_task->DropResult();
+		}
 	}
 };
