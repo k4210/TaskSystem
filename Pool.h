@@ -32,19 +32,19 @@ namespace utils
 
 		Node* Pop()
 		{
-			if (LockFree::kInvalidIndex == head_)
+			if (kInvalidIndex == head_)
 			{
 				return nullptr;
 			}
 			Node& node = FromPoolIndex<Node>(head_);
 			head_ = node.next_;
-			node.next_ = LockFree::kInvalidIndex;
+			node.next_ = kInvalidIndex;
 			size_--;
 			return &node;
 		}
 
 		//return previous head
-		Index Reset(Index new_head = LockFree::kInvalidIndex)
+		Index Reset(Index new_head = kInvalidIndex)
 		{
 			return std::exchange(head_, new_head);
 		}
@@ -52,7 +52,7 @@ namespace utils
 		uint16 GetSize() const { return size_; }
 
 	private:
-		Index head_ = LockFree::kInvalidIndex;
+		Index head_ = kInvalidIndex;
 		uint16 size_ = 0;
 	};
 
@@ -75,7 +75,7 @@ namespace utils
 			{
 				UnsafeStack<Node> stack = free_per_thread_[thread_idx];
 				Index last_element = first_remaining + ElementsPerThread - 1;
-				all_[last_element].next_ = LockFree::kInvalidIndex;
+				all_[last_element].next_ = kInvalidIndex;
 				stack.PushChain(all_[first_remaining], all_[last_element], ElementsPerThread);
 				first_remaining += ElementsPerThread;
 			}
@@ -86,7 +86,7 @@ namespace utils
 #if THREAD_SMART_POOL
 		UnsafeStack<Node>* GetStackPerThread()
 		{
-			return (ts::t_worker_thread_idx != LockFree::kInvalidIndex)
+			return (ts::t_worker_thread_idx != kInvalidIndex)
 				? &free_per_thread_[ts::t_worker_thread_idx]
 				: nullptr;
 		}
@@ -135,10 +135,10 @@ namespace utils
 
 		void ReturnChain(Node& new_head, Node& chain_tail, [[maybe_unused]] uint16 chain_len)
 		{
-			assert(chain_tail.next_ == LockFree::kInvalidIndex);
+			assert(chain_tail.next_ == kInvalidIndex);
 #if DO_POOL_STATS
 			for (Index iter = GetPoolIndex(new_head);
-				iter != LockFree::kInvalidIndex;
+				iter != kInvalidIndex;
 				iter = FromPoolIndex<Node>(iter).next_)
 			{
 				--used_counter_;
@@ -147,7 +147,7 @@ namespace utils
 			if constexpr (requires { new_head.OnReturnToPool(); })
 			{
 				for (Index iter = GetPoolIndex(new_head);
-					iter != LockFree::kInvalidIndex;
+					iter != kInvalidIndex;
 					iter = FromPoolIndex<Node>(iter).next_)
 				{
 					FromPoolIndex<Node>(iter).OnReturnToPool();

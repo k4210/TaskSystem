@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <span>
-#include <limits>
 #include <optional>
 #include <assert.h>
 #include <array>
@@ -11,7 +10,6 @@
 namespace LockFree
 {
 	using Tag = uint16;
-	constexpr Index kInvalidIndex = std::numeric_limits<Index>::max();
 
 	template<typename Node>
 	struct Stack

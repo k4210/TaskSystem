@@ -55,7 +55,7 @@ namespace ts
 		void OnRefCountZero();
 		static std::span<GenericFuture> GetPoolSpan();
 
-		Index next_ = LockFree::kInvalidIndex;
+		Index next_ = kInvalidIndex;
 #if !defined(NDEBUG)
 		void OnReturnToPool()
 		{

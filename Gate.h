@@ -30,7 +30,7 @@ namespace ts
 #endif
 		utils::TRefCountPoolPtr<BaseTask> task_;
 
-		Index next_ = LockFree::kInvalidIndex;
+		Index next_ = kInvalidIndex;
 	};
 
 	struct Gate

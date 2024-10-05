@@ -12,7 +12,7 @@
 #define DO_POOL_STATS 1
 #endif // _DEBUG
 
-constexpr std::size_t k_workers_num = 8;
-constexpr std::size_t k_task_pool = 2048;
-constexpr std::size_t k_dep_node_pool = 2048;
-constexpr std::size_t k_future_pool = 2048;
+constexpr std::size_t kWorkeThreadsNum = 16;
+constexpr std::size_t kTaskPoolSize = 2048;
+constexpr std::size_t kDepNodePoolSize = 2048;
+constexpr std::size_t kFuturePoolSize = 2048;

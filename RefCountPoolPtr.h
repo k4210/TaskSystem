@@ -28,6 +28,15 @@ namespace utils
 			}
 		}
 
+		TRefCountPoolPtr(Index index_, bool add_ref = true)
+			: index_(index_)
+		{
+			if (IsValid() && add_ref)
+			{
+				FromPoolIndex<Node>(index_).AddRef();
+			}
+		}
+
 		TRefCountPoolPtr(const TRefCountPoolPtr& copy)
 			: TRefCountPoolPtr(copy.Get())
 		{}
@@ -35,7 +44,7 @@ namespace utils
 		TRefCountPoolPtr(TRefCountPoolPtr&& move)
 		{
 			index_ = move.index_;
-			move.index_ = LockFree::kInvalidIndex;
+			move.index_ = kInvalidIndex;
 		}
 
 		~TRefCountPoolPtr()
@@ -48,7 +57,7 @@ namespace utils
 
 		void ResetNoRelease()
 		{
-			index_ = LockFree::kInvalidIndex;
+			index_ = kInvalidIndex;
 		}
 
 #pragma region TRefCountPtr
@@ -77,7 +86,7 @@ namespace utils
 		TRefCountPoolPtr& operator=(std::nullptr_t)
 		{
 			Node* old_node = Get();
-			index_ = LockFree::kInvalidIndex;
+			index_ = kInvalidIndex;
 			if (old_node)
 			{
 				old_node->Release();
@@ -91,7 +100,7 @@ namespace utils
 			if (old_node != new_node)
 			{
 				// Call AddRef before Release, in case the new reference is the same as the old reference.
-				index_ = new_node ? GetPoolIndex(*new_node) : LockFree::kInvalidIndex;
+				index_ = new_node ? GetPoolIndex(*new_node) : kInvalidIndex;
 				if (new_node)
 				{
 					new_node->AddRef();
@@ -113,7 +122,7 @@ namespace utils
 		{
 			Node* old_node = Get();
 			index_ = move.index_;
-			move.index_ = LockFree::kInvalidIndex;
+			move.index_ = kInvalidIndex;
 			if (old_node)
 			{
 				old_node->Release();
@@ -130,7 +139,7 @@ namespace utils
 
 		bool IsValid() const
 		{
-			return index_ != LockFree::kInvalidIndex;
+			return index_ != kInvalidIndex;
 		}
 
 		Node* Get() const
@@ -171,7 +180,7 @@ namespace utils
 		}
 
 	private:
-		Index index_ = LockFree::kInvalidIndex;
+		Index index_ = kInvalidIndex;
 	};
 
 }

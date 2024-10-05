@@ -8,20 +8,23 @@ namespace ts
 	struct AccessSynchronizer
 	{
 		//returns prerequire, to insert
-		utils::TRefCountPtr<BaseTask> Sync(BaseTask& task)
+		utils::TRefCountPoolPtr<BaseTask> Sync(BaseTask& task)
 		{
 			task.AddRef();
-			BaseTask* prev = last_task_.exchange(&task);
+			const Index prev_idx = last_task_.exchange(utils::GetPoolIndex(task));
+			DEBUG_CODE(BaseTask* prev = (prev_idx != kInvalidIndex)
+				? &utils::FromPoolIndex<BaseTask>(prev_idx) 
+				: nullptr;)
 			assert(prev != &task);
 			assert(!prev || (prev->GetRefCount() > 1) || prev->GetGate()->IsEmpty());
-			return utils::TRefCountPtr<BaseTask>(prev, false);
+			return utils::TRefCountPoolPtr<BaseTask>(prev_idx, false);
 		}
 
 		bool SyncIfAvailible(BaseTask& task)
 		{
-			BaseTask* expexted = nullptr;
+			Index expexted = kInvalidIndex;
 			task.AddRef();
-			const bool replaced = last_task_.compare_exchange_strong(expexted, &task);
+			const bool replaced = last_task_.compare_exchange_strong(expexted, utils::GetPoolIndex(task));
 			if (!replaced)
 			{
 				task.Release();
@@ -31,8 +34,8 @@ namespace ts
 
 		void Release(BaseTask& task)
 		{
-			BaseTask* expexted = &task;
-			const bool replaced = last_task_.compare_exchange_strong(expexted, nullptr);
+			Index expexted = utils::GetPoolIndex(task);
+			const bool replaced = last_task_.compare_exchange_strong(expexted, kInvalidIndex);
 			assert(!replaced || task.GetRefCount() > 1);
 			if (replaced)
 			{
@@ -42,12 +45,12 @@ namespace ts
 
 		bool IsLocked() const
 		{
-			return !!last_task_.load(std::memory_order_relaxed);
+			return last_task_.load(std::memory_order_relaxed) != kInvalidIndex;
 		}
 
 		DEBUG_CODE(thread_local static bool is_any_asset_locked_;)
 	private:
-		std::atomic<BaseTask*> last_task_ = nullptr;
+		std::atomic<Index> last_task_ = kInvalidIndex;
 	};
 
 	template<typename T>

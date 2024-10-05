@@ -6,35 +6,35 @@ namespace ts
 {
 	constexpr std::size_t InitPoolSizePerThread(std::size_t pool_size)
 	{
-		return (pool_size / k_workers_num) / 4;
+		return (pool_size / kWorkeThreadsNum) / 4;
 	}
 
 	constexpr std::size_t MaxPoolSizePerThread(std::size_t pool_size)
 	{
-		return 3 * (pool_size / k_workers_num) / 8;
+		return 3 * (pool_size / kWorkeThreadsNum) / 8;
 	}
 
 	struct TaskSystemGlobals
 	{
-		utils::Pool<BaseTask, k_task_pool
+		utils::Pool<BaseTask, kTaskPoolSize
 #if THREAD_SMART_POOL
-			, k_workers_num, InitPoolSizePerThread(k_task_pool), MaxPoolSizePerThread(k_task_pool)
+			, kWorkeThreadsNum, InitPoolSizePerThread(kTaskPoolSize), MaxPoolSizePerThread(kTaskPoolSize)
 #endif
 		> task_pool_;
-		utils::Pool<DependencyNode, k_dep_node_pool
+		utils::Pool<DependencyNode, kDepNodePoolSize
 #if THREAD_SMART_POOL
-			, k_workers_num, InitPoolSizePerThread(k_dep_node_pool), MaxPoolSizePerThread(k_dep_node_pool)
+			, kWorkeThreadsNum, InitPoolSizePerThread(kDepNodePoolSize), MaxPoolSizePerThread(kDepNodePoolSize)
 #endif
 		> dependency_pool_;
-		utils::Pool<GenericFuture, k_future_pool
+		utils::Pool<GenericFuture, kFuturePoolSize
 #if THREAD_SMART_POOL
-			, k_workers_num, InitPoolSizePerThread(k_future_pool), MaxPoolSizePerThread(k_future_pool)
+			, kWorkeThreadsNum, InitPoolSizePerThread(kFuturePoolSize), MaxPoolSizePerThread(kFuturePoolSize)
 #endif
 		> future_pool_;
 		LockFree::Stack<BaseTask> ready_to_execute_;
 		std::array<LockFree::Stack<BaseTask>, 5>  ready_to_execute_named;
 
-		std::array<std::thread, k_workers_num> threads_;
+		std::array<std::thread, kWorkeThreadsNum> threads_;
 		bool working_ = false;
 		std::atomic<uint8> used_threads_ = 0;
 
@@ -115,7 +115,7 @@ namespace ts
 		}
 	}
 
-	thread_local uint16 t_worker_thread_idx = LockFree::kInvalidIndex;
+	thread_local uint16 t_worker_thread_idx = kInvalidIndex;
 
 	void TaskSystem::StartWorkerThreads()
 	{

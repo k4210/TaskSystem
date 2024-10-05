@@ -3,6 +3,7 @@
 #include <type_traits>
 #include <source_location>
 #include <span>
+#include <limits>
 #include "Config.h"
 
 #ifdef NDEBUG
@@ -23,7 +24,9 @@ using uint8 = unsigned __int8;
 using uint16 = unsigned __int16;
 using int32 = __int32;
 using uint32 = unsigned __int32;
+
 using Index = uint16;
+constexpr Index kInvalidIndex = std::numeric_limits<Index>::max();
 
 template<class EnumType>
 constexpr bool enum_has_any(EnumType value, EnumType looking_for)
