@@ -138,6 +138,7 @@
     <ClInclude Include="AnyValue.h" />
     <ClInclude Include="BaseTask.h" />
     <ClInclude Include="Common.h" />
+    <ClInclude Include="Config.h" />
     <ClInclude Include="Coroutine.h" />
     <ClInclude Include="CoroutineHandle.h" />
     <ClInclude Include="Gate.h" />

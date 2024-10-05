@@ -4,217 +4,220 @@
 #include <assert.h>
 #include "Common.h"
 
-template< typename DerivedType >
-struct TRefCounted
+namespace utils
 {
-	TRefCounted() = default;
-
-	~TRefCounted()
+	template< typename DerivedType >
+	struct TRefCounted
 	{
-		assert(!GetRefCount());
-	}
+		TRefCounted() = default;
 
-	TRefCounted(const TRefCounted&) = delete;
-	TRefCounted(TRefCounted&&) = delete;
-	TRefCounted& operator = (const TRefCounted&) = delete;
-	TRefCounted& operator = (TRefCounted&&) = delete;
-
-	uint32 AddRef() const
-	{
-		const int32 NewRefCount = ++RefCount;
-		assert(NewRefCount >= 1);
-
-		return static_cast<uint32>(NewRefCount);
-	}
-
-	void Release() const
-	{
-		const int32 NewRefCount = --RefCount;
-		assert(NewRefCount >= 0);
-		if (NewRefCount == 0)
+		~TRefCounted()
 		{
-			DerivedType* Derived = const_cast<DerivedType*>(static_cast<const DerivedType*>(this));
-			if constexpr (requires { Derived->OnRefCountZero(); })
+			assert(!GetRefCount());
+		}
+
+		TRefCounted(const TRefCounted&) = delete;
+		TRefCounted(TRefCounted&&) = delete;
+		TRefCounted& operator = (const TRefCounted&) = delete;
+		TRefCounted& operator = (TRefCounted&&) = delete;
+
+		uint32 AddRef() const
+		{
+			const int32 NewRefCount = ++RefCount;
+			assert(NewRefCount >= 1);
+
+			return static_cast<uint32>(NewRefCount);
+		}
+
+		void Release() const
+		{
+			const int32 NewRefCount = --RefCount;
+			assert(NewRefCount >= 0);
+			if (NewRefCount == 0)
 			{
-				Derived->OnRefCountZero();
-			}
-			else
-			{
-				delete Derived;
+				DerivedType* Derived = const_cast<DerivedType*>(static_cast<const DerivedType*>(this));
+				if constexpr (requires { Derived->OnRefCountZero(); })
+				{
+					Derived->OnRefCountZero();
+				}
+				else
+				{
+					delete Derived;
+				}
 			}
 		}
-	}
 
-	uint32 GetRefCount() const
-	{
-		return static_cast<uint32>(RefCount.load(std::memory_order_relaxed));
-	}
-
-private:
-	mutable std::atomic< int32 > RefCount = 0;
-};
-
-template<typename ReferencedType>
-class TRefCountPtr
-{
-public:
-
-	TRefCountPtr() = default;
-
-	TRefCountPtr(ReferencedType* InReference, bool add_ref = true)
-	{
-		Reference = InReference;
-		if (Reference && add_ref)
+		uint32 GetRefCount() const
 		{
-			Reference->AddRef();
+			return static_cast<uint32>(RefCount.load(std::memory_order_relaxed));
 		}
-		assert(!Reference || Reference->GetRefCount());
-	}
 
-	TRefCountPtr(ReferencedType& InReference)
-	{
-		Reference = &InReference;
-		Reference->AddRef();
-	}
+	private:
+		mutable std::atomic< int32 > RefCount = 0;
+	};
 
-	TRefCountPtr(const TRefCountPtr& Copy)
-		: TRefCountPtr(Copy.Get())
+	template<typename ReferencedType>
+	class TRefCountPtr
 	{
-		assert(!Reference || (Reference->GetRefCount() >= 2));
-	}
+	public:
 
-	TRefCountPtr(TRefCountPtr&& Move)
-	{
-		Reference = Move.Get();
-		Move.Reference = nullptr;
-		assert(!Reference || (Reference->GetRefCount() >= 1));
-	}
+		TRefCountPtr() = default;
 
-	TRefCountPtr& operator=(ReferencedType* InReference)
-	{
-		if (Reference != InReference)
+		TRefCountPtr(ReferencedType* InReference, bool add_ref = true)
 		{
-			// Call AddRef before Release, in case the new reference is the same as the old reference.
-			ReferencedType* OldReference = Reference;
 			Reference = InReference;
-			if (Reference)
+			if (Reference && add_ref)
 			{
 				Reference->AddRef();
 			}
+			assert(!Reference || Reference->GetRefCount());
+		}
+
+		TRefCountPtr(ReferencedType& InReference)
+		{
+			Reference = &InReference;
+			Reference->AddRef();
+		}
+
+		TRefCountPtr(const TRefCountPtr& Copy)
+			: TRefCountPtr(Copy.Get())
+		{
+			assert(!Reference || (Reference->GetRefCount() >= 2));
+		}
+
+		TRefCountPtr(TRefCountPtr&& Move)
+		{
+			Reference = Move.Get();
+			Move.Reference = nullptr;
+			assert(!Reference || (Reference->GetRefCount() >= 1));
+		}
+
+		TRefCountPtr& operator=(ReferencedType* InReference)
+		{
+			if (Reference != InReference)
+			{
+				// Call AddRef before Release, in case the new reference is the same as the old reference.
+				ReferencedType* OldReference = Reference;
+				Reference = InReference;
+				if (Reference)
+				{
+					Reference->AddRef();
+				}
+				if (OldReference)
+				{
+					OldReference->Release();
+				}
+			}
+			return *this;
+		}
+
+		TRefCountPtr& operator=(const TRefCountPtr& InPtr)
+		{
+			return *this = InPtr.Get();
+		}
+
+		TRefCountPtr& operator=(TRefCountPtr&& InPtr)
+		{
+			ReferencedType* OldReference = Reference;
+			Reference = InPtr.Get();
+			InPtr.Reference = nullptr;
 			if (OldReference)
 			{
 				OldReference->Release();
 			}
+			return *this;
 		}
-		return *this;
-	}
 
-	TRefCountPtr& operator=(const TRefCountPtr& InPtr)
-	{
-		return *this = InPtr.Get();
-	}
-
-	TRefCountPtr& operator=(TRefCountPtr&& InPtr)
-	{
-		ReferencedType* OldReference = Reference;
-		Reference = InPtr.Get();
-		InPtr.Reference = nullptr;
-		if (OldReference)
+		template<typename OtherType>
+		TRefCountPtr<OtherType> Cast()&&
 		{
-			OldReference->Release();
+			static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
+			TRefCountPtr<OtherType> other;
+			other.Reference = static_cast<OtherType*>(Get());
+			Reference = nullptr;
+			return other;
 		}
-		return *this;
-	}
 
-	template<typename OtherType>
-	TRefCountPtr<OtherType> Cast()&&
-	{
-		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
-		TRefCountPtr<OtherType> other;
-		other.Reference = static_cast<OtherType*>(Get());
-		Reference = nullptr;
-		return other;
-	}
-
-	template<typename OtherType>
-	TRefCountPtr<OtherType> Cast()&
-	{
-		static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
-		return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
-	}
-
-	~TRefCountPtr()
-	{
-		if (Reference)
+		template<typename OtherType>
+		TRefCountPtr<OtherType> Cast()&
 		{
-			Reference->Release();
+			static_assert(sizeof(OtherType) <= sizeof(ReferencedType));
+			return TRefCountPtr<OtherType>(static_cast<OtherType*>(Get()));
 		}
-	}
 
-	friend void swap(TRefCountPtr& A, TRefCountPtr& B)
-	{
-		ReferencedType* OldAReference = A.Reference;
-		A.Reference = B.Reference;
-		B.Reference = OldAReference;
-	}
+		~TRefCountPtr()
+		{
+			if (Reference)
+			{
+				Reference->Release();
+			}
+		}
 
-	ReferencedType* operator->() const
-	{
-		assert(Reference);
-		return Reference;
-	}
+		friend void swap(TRefCountPtr& A, TRefCountPtr& B)
+		{
+			ReferencedType* OldAReference = A.Reference;
+			A.Reference = B.Reference;
+			B.Reference = OldAReference;
+		}
 
-	operator ReferencedType* () const
-	{
-		return Reference;
-	}
+		ReferencedType* operator->() const
+		{
+			assert(Reference);
+			return Reference;
+		}
 
-	ReferencedType* Get() const
-	{
-		return Reference;
-	}
+		operator ReferencedType* () const
+		{
+			return Reference;
+		}
 
-	bool IsValid() const
-	{
-		return Reference != nullptr;
-	}
+		ReferencedType* Get() const
+		{
+			return Reference;
+		}
 
-	operator bool() const
-	{
-		return IsValid();
-	}
+		bool IsValid() const
+		{
+			return Reference != nullptr;
+		}
 
-	uint32 GetRefCount() const
-	{
-		return Reference
-			? Reference->GetRefCount()
-			: 0;
-	}
+		operator bool() const
+		{
+			return IsValid();
+		}
 
-	bool operator==(const TRefCountPtr& B) const = default;
+		uint32 GetRefCount() const
+		{
+			return Reference
+				? Reference->GetRefCount()
+				: 0;
+		}
 
-	bool operator==(ReferencedType* B) const
-	{
-		return Get() == B;
-	}
+		bool operator==(const TRefCountPtr& B) const = default;
 
-	void ResetNoRelease()
-	{
-		Reference = nullptr;
-	}
+		bool operator==(ReferencedType* B) const
+		{
+			return Get() == B;
+		}
 
-private:
-	ReferencedType* Reference = nullptr;
+		void ResetNoRelease()
+		{
+			Reference = nullptr;
+		}
 
-	template <typename OtherType>
-	friend class TRefCountPtr;
-};
+	private:
+		ReferencedType* Reference = nullptr;
+
+		template <typename OtherType>
+		friend class TRefCountPtr;
+	};
+}
 
 namespace std
 {
 	template<typename T>
-	struct hash<TRefCountPtr<T>>
+	struct hash<utils::TRefCountPtr<T>>
 	{
-		size_t operator()(const TRefCountPtr<T>& Ptr) const { return hash(Ptr.Get()); }
+		size_t operator()(const utils::TRefCountPtr<T>& Ptr) const { return hash(Ptr.Get()); }
 	};
 }

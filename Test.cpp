@@ -7,9 +7,19 @@
 #include <iostream>
 #include <vector>
 
+#define TASK_TEST 1
+#define COROUTINE_TEST 1
+#define NAMED_THREAD_TEST 1
+#define SYNCH_TEST 1
+#define GENERATOR_TEST 1
+
 using namespace std::chrono_literals;
 
 std::atomic_int32_t counter = 0;
+
+using namespace ts;
+using namespace utils;
+using namespace coroutine;
 
 TDetachCoroutine CoroutineTest(int32 in_val)
 {
@@ -62,12 +72,6 @@ public:
 		});
 	}
 };
-
-#define TASK_TEST 1
-#define COROUTINE_TEST 1
-#define NAMED_THREAD_TEST 1
-#define SYNCH_TEST 1
-#define GENERATOR_TEST 1
 
 int main()
 {
@@ -171,7 +175,7 @@ int main()
 			.name = "Coroutines complex",
 			.included_cleanup = WaitForTasks,
 		});
-	Coroutine::detail::ensure_allocator_free();
+	coroutine::detail::ensure_allocator_free();
 
 	PerformTest([](uint32)
 		{
@@ -181,7 +185,7 @@ int main()
 			.name = "Coroutines complex async",
 			.included_cleanup = WaitForTasks,
 		});
-		Coroutine::detail::ensure_allocator_free();
+		coroutine::detail::ensure_allocator_free();
 
 	{
 		std::array<TUniqueCoroutine<int32>, 1024> handles;
@@ -211,7 +215,7 @@ int main()
 				.included_cleanup = WaitForTasks,
 				.excluded_cleanup = ResetHandles
 			});
-		Coroutine::detail::ensure_allocator_free();
+		coroutine::detail::ensure_allocator_free();
 	}
 #endif
 #if NAMED_THREAD_TEST
@@ -241,16 +245,20 @@ int main()
 #endif
 #if SYNCH_TEST
 	{
-		TRefCountPtr<SampleAsset> asset(new SampleAsset{});
-		TRefCountPtr<SampleAsset> asset2(new SampleAsset{});
+		TRefCountPtr<SampleAsset> asset_ptr(new SampleAsset{});
+		TRefCountPtr<SampleAsset> asset2_ptr(new SampleAsset{});
+		using AssetHolder = SyncHolder<SampleAsset*>;
+		AssetHolder asset(asset_ptr.Get());
+		AssetHolder asset2(asset2_ptr.Get());
+		
 		PerformTest([&](uint32)
 			{
-				TaskSystem::InitializeTaskOn([&](SampleAsset& sample)
+				TaskSystem::InitializeTaskOn([&](AccessScope<SampleAsset*> sample)
 					{
-						assert(!sample.locked_);
-						sample.locked_ = true;
-						sample.data_++;
-						sample.locked_ = false;
+						assert(!sample->locked_);
+						sample->locked_ = true;
+						sample->data_++;
+						sample->locked_ = false;
 					},
 					asset, ETaskFlags:: TryExecuteImmediate);
 			}, TestDetails
@@ -258,18 +266,18 @@ int main()
 				.name = "synchronizer test",
 				.included_cleanup = WaitForTasks
 			});
-			assert(static_cast<uint32>(asset->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
+			assert(static_cast<uint32>(asset_ptr->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
 		PerformTest([&](uint32)
 			{
-				TaskSystem::AsyncResume([](TRefCountPtr<SampleAsset> in_asset, TRefCountPtr<SampleAsset> in_asset2) -> TDetachCoroutine
+				TaskSystem::AsyncResume([](AssetHolder in_asset, AssetHolder in_asset2) -> TDetachCoroutine
 					{
 						{
-							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard = co_await in_asset;
-							guard.Get().SaveState();
+							AccessScopeCo<SampleAsset*> guard = co_await in_asset;
+							guard->SaveState();
 						}
 						{
-							AccessSynchronizerScope<TRefCountPtr<SampleAsset>> guard2 = co_await in_asset2;
-							guard2.Get().SaveState();
+							AccessScopeCo<SampleAsset*> guard2 = co_await in_asset2;
+							guard2->SaveState();
 						}
 					}(asset, asset2));
 			}, TestDetails
@@ -279,8 +287,8 @@ int main()
 				.included_cleanup = WaitForTasks,
 				.excluded_cleanup = [&]()
 				{
-					asset->debug_data_.clear();
-					asset2->debug_data_.clear();
+					asset_ptr->debug_data_.clear();
+					asset2_ptr->debug_data_.clear();
 				}
 			});
 	}
@@ -314,6 +322,6 @@ int main()
 		std::cout << "\nGenerator test done\n";
 	}
 #endif
-	Coroutine::detail::ensure_allocator_free();
+	coroutine::detail::ensure_allocator_free();
 	return 0;
 }

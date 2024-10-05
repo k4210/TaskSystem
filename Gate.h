@@ -4,79 +4,82 @@
 #include "RefCountPoolPtr.h"
 #include "LockFree.h"
 
-class BaseTask;
-
-enum class ETaskState : uint8
+namespace ts
 {
-#if !defined(NDEBUG)
-	Nonexistent_Pooled,
-#endif
-	PendingOrExecuting,
-	PendingOrExecuting_NonBLocking,
-	Done,
-	DoneUnconsumedResult,
-};
+	class BaseTask;
 
-struct DependencyNode
-{
-	static std::span<DependencyNode> GetPoolSpan();
-#if !defined(NDEBUG)
-	void OnReturnToPool()
+	enum class ETaskState : uint8
 	{
-		assert(!task_);
-	}
+#if !defined(NDEBUG)
+		Nonexistent_Pooled,
 #endif
-	TRefCountPoolPtr<BaseTask> task_;
+		PendingOrExecuting,
+		PendingOrExecuting_NonBLocking,
+		Done,
+		DoneUnconsumedResult,
+	};
 
-	LockFree::Index next_ = LockFree::kInvalidIndex;
-};
+	struct DependencyNode
+	{
+		static std::span<DependencyNode> GetPoolSpan();
+#if !defined(NDEBUG)
+		void OnReturnToPool()
+		{
+			assert(!task_);
+		}
+#endif
+		utils::TRefCountPoolPtr<BaseTask> task_;
 
-struct Gate
-{
-	Gate()
-		: depending_(
+		Index next_ = LockFree::kInvalidIndex;
+	};
+
+	struct Gate
+	{
+		Gate()
+			: depending_(
 #ifdef NDEBUG
-			ETaskState::Done
+				ETaskState::Done
 #else
-			ETaskState::Nonexistent_Pooled
+				ETaskState::Nonexistent_Pooled
 #endif
-		)
-	{}
+			)
+		{}
 
-	~Gate()
-	{
-		assert(IsEmpty());
-	}
+		~Gate()
+		{
+			assert(IsEmpty());
+		}
 
-	ETaskState GetState() const
-	{
-		return depending_.GetGateState();
-	}
+		ETaskState GetState() const
+		{
+			return depending_.GetGateState();
+		}
 
-	auto GetInnerState() const
-	{
-		return depending_.GetState();
-	}
+		auto GetInnerState() const
+		{
+			return depending_.GetState();
+		}
 
-	bool IsEmpty() const
-	{
-		return depending_.IsEmpty();
-	}
+		bool IsEmpty() const
+		{
+			return depending_.IsEmpty();
+		}
 
-	// returns previous state
-	ETaskState ResetStateOnEmpty(ETaskState new_state)
-	{
-		return depending_.SetFastOnEmpty(new_state);
-	}
+		// returns previous state
+		ETaskState ResetStateOnEmpty(ETaskState new_state)
+		{
+			return depending_.SetFastOnEmpty(new_state);
+		}
 
-	// return number of unblocked tasks
-	uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+		// return number of unblocked tasks
+		uint32 Unblock(ETaskState new_state, utils::TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
-	bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
-	{
-		return depending_.Add(node, required_state);
-	}
+		bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
+		{
+			return depending_.Add(node, required_state);
+		}
 
-private:
-	LockFree::Collection<DependencyNode, ETaskState> depending_;
-};
+	private:
+		LockFree::Collection<DependencyNode, ETaskState> depending_;
+	};
+}

@@ -4,7 +4,7 @@
 #include <optional>
 #include "assert.h"
 
-namespace Coroutine
+namespace coroutine
 {
 	template <typename Promise> class TDetachHandle;
 

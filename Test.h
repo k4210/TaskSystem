@@ -5,6 +5,8 @@
 #include "Profiling.h"
 #include "Test.h"
 
+namespace utils
+{
 struct TestDetails
 {
 	uint32 inner_num = 256;
@@ -60,4 +62,5 @@ void PerformTest(TestBody body, TestDetails test)
 		}
 	}
 	reporter.display();
+}
 }

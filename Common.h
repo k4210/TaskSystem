@@ -2,6 +2,8 @@
 
 #include <type_traits>
 #include <source_location>
+#include <span>
+#include "Config.h"
 
 #ifdef NDEBUG
 #define DEBUG_CODE(x)
@@ -21,6 +23,7 @@ using uint8 = unsigned __int8;
 using uint16 = unsigned __int16;
 using int32 = __int32;
 using uint32 = unsigned __int32;
+using Index = uint16;
 
 template<class EnumType>
 constexpr bool enum_has_any(EnumType value, EnumType looking_for)
@@ -45,4 +48,25 @@ constexpr EnumType enum_or(EnumType a, EnumType b)
 	static_assert(std::is_enum_v<EnumType>);
 	using IntType = std::underlying_type_t<EnumType>;
 	return static_cast<EnumType>(static_cast<IntType>(a) | static_cast<IntType>(b));
+}
+
+namespace utils
+{
+	template<typename Node>
+	Index GetPoolIndex(const Node& node)
+	{
+		const std::span<Node> nodes = Node::GetPoolSpan();
+		const Node* first = nodes.data();
+		const Index idx = static_cast<Index>(std::distance(first, &node));
+		assert(idx < nodes.size());
+		return idx;
+	}
+
+	template<typename Node>
+	Node& FromPoolIndex(const Index index)
+	{
+		std::span<Node> nodes = Node::GetPoolSpan();
+		assert(index < nodes.size());
+		return nodes[index];
+	}
 }

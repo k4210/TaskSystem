@@ -3,171 +3,175 @@
 #include "RefCount.h"
 #include "Pool.h"
 
-//Node must be both ref counted and pooled
-template<typename Node>
-class TRefCountPoolPtr
+namespace utils
 {
-public:
-
-	TRefCountPoolPtr() = default;
-
-	TRefCountPoolPtr(Node& node)
+	//Node must be both ref counted and pooled
+	template<typename Node>
+	class TRefCountPoolPtr
 	{
-		index_ = GetPoolIndex(node);
-		node.AddRef();
-	}
+	public:
 
-	TRefCountPoolPtr(Node* node)
-	{
-		if (node)
+		TRefCountPoolPtr() = default;
+
+		TRefCountPoolPtr(Node& node)
 		{
-			index_ = GetPoolIndex(*node);
-			node->AddRef();
+			index_ = GetPoolIndex(node);
+			node.AddRef();
 		}
-	}
 
-	TRefCountPoolPtr(const TRefCountPoolPtr& copy)
-		: TRefCountPoolPtr(copy.Get())
-	{}
-
-	TRefCountPoolPtr(TRefCountPoolPtr&& move)
-	{
-		index_ = move.index_;
-		move.index_ = LockFree::kInvalidIndex;
-	}
-
-	~TRefCountPoolPtr()
-	{
-		if (Node* node = Get())
+		TRefCountPoolPtr(Node* node)
 		{
-			node->Release();
+			if (node)
+			{
+				index_ = GetPoolIndex(*node);
+				node->AddRef();
+			}
 		}
-	}
 
-	void ResetNoRelease()
-	{
-		index_ = LockFree::kInvalidIndex;
-	}
+		TRefCountPoolPtr(const TRefCountPoolPtr& copy)
+			: TRefCountPoolPtr(copy.Get())
+		{}
+
+		TRefCountPoolPtr(TRefCountPoolPtr&& move)
+		{
+			index_ = move.index_;
+			move.index_ = LockFree::kInvalidIndex;
+		}
+
+		~TRefCountPoolPtr()
+		{
+			if (Node* node = Get())
+			{
+				node->Release();
+			}
+		}
+
+		void ResetNoRelease()
+		{
+			index_ = LockFree::kInvalidIndex;
+		}
 
 #pragma region TRefCountPtr
-	TRefCountPoolPtr(const TRefCountPtr<Node>& other)
-		: TRefCountPoolPtr(other.Get())
-	{}
+		TRefCountPoolPtr(const TRefCountPtr<Node>& other)
+			: TRefCountPoolPtr(other.Get())
+		{}
 
-	TRefCountPoolPtr& operator=(const TRefCountPtr<Node>& other)
-	{
-		return *this = other.Get();
-	}
+		TRefCountPoolPtr& operator=(const TRefCountPtr<Node>& other)
+		{
+			return *this = other.Get();
+		}
 
-	TRefCountPtr<Node> ToRefCountPtr() &
-	{
-		return TRefCountPtr(Get());
-	}
+		TRefCountPtr<Node> ToRefCountPtr()&
+		{
+			return TRefCountPtr(Get());
+		}
 
-	TRefCountPtr<Node> ToRefCountPtr() &&
-	{
-		Node* node = Get();
-		ResetNoRelease();
-		return TRefCountPtr(node, false);
-	}
+		TRefCountPtr<Node> ToRefCountPtr()&&
+		{
+			Node* node = Get();
+			ResetNoRelease();
+			return TRefCountPtr(node, false);
+		}
 
 #pragma endregion
-	TRefCountPoolPtr& operator=(std::nullptr_t)
-	{
-		Node* old_node = Get();
-		index_ = LockFree::kInvalidIndex;
-		if (old_node)
+		TRefCountPoolPtr& operator=(std::nullptr_t)
 		{
-			old_node->Release();
-		}
-		return *this;
-	}
-
-	TRefCountPoolPtr& operator=(Node* new_node)
-	{
-		Node* old_node = Get();
-		if (old_node != new_node)
-		{
-			// Call AddRef before Release, in case the new reference is the same as the old reference.
-			index_ = new_node ? GetPoolIndex(*new_node) : LockFree::kInvalidIndex;
-			if (new_node)
-			{
-				new_node->AddRef();
-			}
+			Node* old_node = Get();
+			index_ = LockFree::kInvalidIndex;
 			if (old_node)
 			{
 				old_node->Release();
 			}
+			return *this;
 		}
-		return *this;
-	}
 
-	TRefCountPoolPtr& operator=(const TRefCountPoolPtr& InPtr)
-	{
-		return *this = InPtr.Get();
-	}
-
-	TRefCountPoolPtr& operator=(TRefCountPoolPtr&& move)
-	{
-		Node* old_node = Get();
-		index_ = move.index_;
-		move.index_ = LockFree::kInvalidIndex;
-		if (old_node)
+		TRefCountPoolPtr& operator=(Node* new_node)
 		{
-			old_node->Release();
+			Node* old_node = Get();
+			if (old_node != new_node)
+			{
+				// Call AddRef before Release, in case the new reference is the same as the old reference.
+				index_ = new_node ? GetPoolIndex(*new_node) : LockFree::kInvalidIndex;
+				if (new_node)
+				{
+					new_node->AddRef();
+				}
+				if (old_node)
+				{
+					old_node->Release();
+				}
+			}
+			return *this;
 		}
-		return *this;
-	}
 
-	friend void swap(TRefCountPoolPtr& A, TRefCountPoolPtr& B)
-	{
-		LockFree::Index AIdx = A.index_;
-		A.index_ = B.index_;
-		B.index_ = AIdx;
-	}
+		TRefCountPoolPtr& operator=(const TRefCountPoolPtr& InPtr)
+		{
+			return *this = InPtr.Get();
+		}
 
-	bool IsValid() const
-	{
-		return index_ != LockFree::kInvalidIndex;
-	}
+		TRefCountPoolPtr& operator=(TRefCountPoolPtr&& move)
+		{
+			Node* old_node = Get();
+			index_ = move.index_;
+			move.index_ = LockFree::kInvalidIndex;
+			if (old_node)
+			{
+				old_node->Release();
+			}
+			return *this;
+		}
 
-	Node* Get() const
-	{
-		return IsValid()
-			? &FromPoolIndex<Node>(index_)
-			: nullptr;
-	}
+		friend void swap(TRefCountPoolPtr& A, TRefCountPoolPtr& B)
+		{
+			Index AIdx = A.index_;
+			A.index_ = B.index_;
+			B.index_ = AIdx;
+		}
 
-	Node* operator->() const
-	{
-		Node* node = Get();
-		assert(node);
-		return node;
-	}
+		bool IsValid() const
+		{
+			return index_ != LockFree::kInvalidIndex;
+		}
 
-	operator Node* () const
-	{
-		return Get();
-	}
+		Node* Get() const
+		{
+			return IsValid()
+				? &FromPoolIndex<Node>(index_)
+				: nullptr;
+		}
 
-	operator bool() const
-	{
-		return IsValid();
-	}
+		Node* operator->() const
+		{
+			Node* node = Get();
+			assert(node);
+			return node;
+		}
 
-	uint32 GetRefCount() const
-	{
-		Node* node = Get();
-		return node ? node->GetRefCount() : 0;
-	}
+		operator Node* () const
+		{
+			return Get();
+		}
 
-	bool operator==(const TRefCountPoolPtr& B) const = default;
+		operator bool() const
+		{
+			return IsValid();
+		}
 
-	bool operator==(Node* B) const
-	{
-		return Get() == B;
-	}
+		uint32 GetRefCount() const
+		{
+			Node* node = Get();
+			return node ? node->GetRefCount() : 0;
+		}
 
-private:
-	LockFree::Index index_ = LockFree::kInvalidIndex;
-};
+		bool operator==(const TRefCountPoolPtr& B) const = default;
+
+		bool operator==(Node* B) const
+		{
+			return Get() == B;
+		}
+
+	private:
+		Index index_ = LockFree::kInvalidIndex;
+	};
+
+}

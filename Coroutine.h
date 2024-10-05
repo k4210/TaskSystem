@@ -5,7 +5,7 @@
 #include "Future.h"
 #include "AccessSynchronizer.h"
 
-namespace Coroutine
+namespace coroutine
 {
 	namespace detail
 	{
@@ -90,8 +90,6 @@ namespace Coroutine
 		using YieldType = void;
 	};
 
-#define COROUTINE_CUSTOM_ALLOC 1
-
 	template <typename Return = void, typename Yield = void>
 	class TPromise : public TPromiseYield<Return, Yield>
 	{
@@ -114,10 +112,10 @@ namespace Coroutine
 
 		auto await_transform(std::suspend_always InAwaiter) { return InAwaiter; }
 
-		template <std::derived_from<GenericFuture> SpecializedType>
-		auto await_transform(TRefCountPtr<SpecializedType>&& InTask)
+		template <std::derived_from<ts::GenericFuture> SpecializedType>
+		auto await_transform(utils::TRefCountPtr<SpecializedType>&& InTask)
 		{
-			return GenericFutureAwaiter<SpecializedType>{ InTask };
+			return ts::GenericFutureAwaiter<SpecializedType>{ InTask };
 		}
 
 		template <typename OtherPromise>
@@ -158,10 +156,10 @@ namespace Coroutine
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
 
-		template<SyncPtr TPtr>
-		auto await_transform(TPtr resource)
+		template<ts::SyncPtr TPtr>
+		auto await_transform(ts::SyncHolder<TPtr> resource)
 		{
-			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<TPtr>(resource) );
+			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<ts::SyncHolder<TPtr>>(resource) );
 		}
 	};
 
@@ -230,6 +228,6 @@ namespace Coroutine
 }
 
 template<typename ReturnType = void, typename YieldType = void>
-using TUniqueCoroutine = Coroutine::TAttachPromise<ReturnType, YieldType>::TaskType;
+using TUniqueCoroutine = coroutine::TAttachPromise<ReturnType, YieldType>::TaskType;
 
-using TDetachCoroutine = Coroutine::TDetachPromise::TaskType;
+using TDetachCoroutine = coroutine::TDetachPromise::TaskType;
