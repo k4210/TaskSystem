@@ -4,7 +4,7 @@
 #include <assert.h>
 #include "Common.h"
 
-namespace utils
+namespace ts
 {
 	// Eventually AnyValue could allocate external memory for big types. 
 	template<uint32 Size>

@@ -4,7 +4,7 @@
 #include <assert.h>
 #include "Common.h"
 
-namespace utils
+namespace ts
 {
 	template< typename DerivedType >
 	struct TRefCounted
@@ -216,8 +216,8 @@ namespace utils
 namespace std
 {
 	template<typename T>
-	struct hash<utils::TRefCountPtr<T>>
+	struct hash<ts::TRefCountPtr<T>>
 	{
-		size_t operator()(const utils::TRefCountPtr<T>& Ptr) const { return hash(Ptr.Get()); }
+		size_t operator()(const ts::TRefCountPtr<T>& Ptr) const { return hash(Ptr.Get()); }
 	};
 }

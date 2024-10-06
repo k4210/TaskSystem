@@ -5,7 +5,7 @@
 #include "Profiling.h"
 #include "Test.h"
 
-namespace utils
+namespace ts
 {
 struct TestDetails
 {

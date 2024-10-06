@@ -5,7 +5,7 @@
 #include "Future.h"
 #include "AccessSynchronizer.h"
 
-namespace coroutine
+namespace ts
 {
 	namespace detail
 	{
@@ -112,10 +112,10 @@ namespace coroutine
 
 		auto await_transform(std::suspend_always InAwaiter) { return InAwaiter; }
 
-		template <std::derived_from<ts::GenericFuture> SpecializedType>
-		auto await_transform(utils::TRefCountPtr<SpecializedType>&& InTask)
+		template <std::derived_from<GenericFuture> SpecializedType>
+		auto await_transform(TRefCountPtr<SpecializedType>&& InTask)
 		{
-			return ts::GenericFutureAwaiter<SpecializedType>{ InTask };
+			return GenericFutureAwaiter<SpecializedType>{ InTask };
 		}
 
 		template <typename OtherPromise>
@@ -156,10 +156,10 @@ namespace coroutine
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
 
-		template<ts::SyncPtr TPtr>
-		auto await_transform(ts::SyncHolder<TPtr> resource)
+		template<SyncPtr TPtr>
+		auto await_transform(SyncHolder<TPtr> resource)
 		{
-			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<ts::SyncHolder<TPtr>>(resource) );
+			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<SyncHolder<TPtr>>(resource) );
 		}
 	};
 
@@ -203,7 +203,7 @@ namespace coroutine
 			return TaskType(HandleType::from_promise(*this));
 		}
 
-		LockFree::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ =
+		lock_free::GatedValue<std::coroutine_handle<>, detail::EInnerState> continuation_ =
 			{ std::coroutine_handle<>{}, detail::EInnerState::Unfinished };
 	};
 
@@ -225,9 +225,10 @@ namespace coroutine
 			return TaskType(HandleType::from_promise(*this));
 		}
 	};
+
+	template<typename ReturnType = void, typename YieldType = void>
+	using TUniqueCoroutine = TAttachPromise<ReturnType, YieldType>::TaskType;
+
+	using TDetachCoroutine = TDetachPromise::TaskType;
 }
 
-template<typename ReturnType = void, typename YieldType = void>
-using TUniqueCoroutine = coroutine::TAttachPromise<ReturnType, YieldType>::TaskType;
-
-using TDetachCoroutine = coroutine::TDetachPromise::TaskType;

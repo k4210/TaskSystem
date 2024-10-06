@@ -28,7 +28,7 @@ namespace ts
 		NameThreadMask = NamedThread1 | NamedThread2 | NamedThread3 | NamedThread4 | NamedThread5
 	};
 
-	class GenericFuture : public utils::TRefCounted<GenericFuture>
+	class GenericFuture : public TRefCounted<GenericFuture>
 	{
 	public:
 		bool IsPendingOrExecuting() const
@@ -39,7 +39,7 @@ namespace ts
 		}
 
 		template<typename F>
-		auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> utils::TRefCountPtr<Future<decltype(function())>>
+		auto Then(F function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM) -> TRefCountPtr<Future<decltype(function())>>
 		{
 			using ResultType = decltype(function());
 			static_assert(sizeof(Future<ResultType>) == sizeof(GenericFuture));
@@ -66,7 +66,7 @@ namespace ts
 	protected:
 
 		Gate gate_;
-		utils::AnyValue<6 * sizeof(uint8*)> result_;
+		AnyValue<6 * sizeof(uint8*)> result_;
 
 		friend class TaskSystem;
 		template<typename T, typename DerivedType> friend class CommonSpecialization;
@@ -102,7 +102,7 @@ namespace ts
 			DerivedType* common = static_cast<DerivedType*>(this);
 			Gate* pre_req[] = { common->GetGate() };
 			using ResultType = decltype(function(T{}));
-			auto lambda = [source = utils::TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() -> ResultType
+			auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() -> ResultType
 				{
 					if constexpr (std::is_void_v<ResultType>)
 					{
@@ -123,7 +123,7 @@ namespace ts
 			DerivedType* common = static_cast<DerivedType*>(this);
 			Gate* pre_req[] = { common->GetGate() };
 			using ResultType = decltype(function(T{}));
-			auto lambda = [source = utils::TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() mutable -> ResultType
+			auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() mutable -> ResultType
 				{
 					T value = source->DropResult();
 					source = nullptr;
@@ -171,7 +171,7 @@ namespace ts
 	template <std::derived_from<GenericFuture> SpecializedType, typename ReturnType = SpecializedType::ReturnType>
 	struct GenericFutureAwaiter
 	{
-		utils::TRefCountPtr<SpecializedType> inner_task_;
+		TRefCountPtr<SpecializedType> inner_task_;
 
 		bool await_ready()
 		{
@@ -189,7 +189,7 @@ namespace ts
 		auto await_resume()
 		{
 			assert(!inner_task_->IsPendingOrExecuting());
-			utils::TRefCountPtr<SpecializedType> moved_task = std::move(inner_task_);
+			TRefCountPtr<SpecializedType> moved_task = std::move(inner_task_);
 			inner_task_ = nullptr;
 			if constexpr (!std::is_void_v<ReturnType>)
 			{

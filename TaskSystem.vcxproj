@@ -151,6 +151,7 @@
     <ClInclude Include="RefCountPoolPtr.h" />
     <ClInclude Include="Future.h" />
     <ClInclude Include="Test.h" />
+    <ClInclude Include="TickSync.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AccessSynchronizer.cpp" />

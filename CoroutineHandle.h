@@ -4,7 +4,7 @@
 #include <optional>
 #include "assert.h"
 
-namespace coroutine
+namespace ts
 {
 	template <typename Promise> class TDetachHandle;
 
@@ -31,6 +31,13 @@ namespace coroutine
 			moved.handle_ = nullptr;
 		}
 		DetachHandle& operator=(DetachHandle&&) = delete;
+
+		std::coroutine_handle<> Detach()
+		{
+			std::coroutine_handle<> temp = handle_;
+			handle_ = nullptr;
+			return temp;
+		}
 
 		void StartAndDetach()
 		{

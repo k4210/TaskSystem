@@ -10,7 +10,7 @@
 #include <concepts>
 #include <thread>
 
-namespace coroutine
+namespace ts
 {
 	class DetachHandle;
 }
@@ -41,7 +41,7 @@ namespace ts
 
 		static bool ExecuteATask(ETaskFlags flag, std::atomic<bool>& out_active);
 
-		static void AsyncResume(coroutine::DetachHandle handle LOCATION_PARAM);
+		static void AsyncResume(DetachHandle handle LOCATION_PARAM);
 
 		template<class F>
 		static auto InitializeTask(F&& functor, std::span<Gate*> prerequiers = {}, ETaskFlags flags = ETaskFlags::None
@@ -50,7 +50,7 @@ namespace ts
 			using ResultType = decltype(std::invoke(functor));
 			static_assert(sizeof(Task<ResultType>) == sizeof(BaseTask));
 			static_assert(sizeof(Future<ResultType>) == sizeof(GenericFuture));
-			utils::TRefCountPtr<BaseTask> task = CreateTask([function = std::forward<F>(functor)]([[maybe_unused]] BaseTask& task) mutable
+			TRefCountPtr<BaseTask> task = CreateTask([function = std::forward<F>(functor)]([[maybe_unused]] BaseTask& task) mutable
 				{
 					if constexpr (std::is_void_v<ResultType>)
 					{
@@ -124,9 +124,9 @@ namespace ts
 
 			assert(resource.Get());
 			AccessSynchronizer& synchronizer = resource.Get()->synchronizer_;
-			utils::TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
+			TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
 
-			utils::TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
+			TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
 			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
 			Gate* pre_req[] = { to_sync };
 
@@ -134,31 +134,8 @@ namespace ts
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
 
-		template<class F, SyncPtr OPtr>
-		static void InitializeResumeTaskOn(F&& functor, OPtr ptr, ETaskFlags flags = ETaskFlags::None
-			LOCATION_PARAM)
-		{
-			using ResultType = void;
-			static_assert(sizeof(Task<ResultType>) == sizeof(BaseTask));
-			static_assert(sizeof(Future<ResultType>) == sizeof(GenericFuture));
-
-			assert(ptr);
-			AccessSynchronizer& synchronizer = ptr->synchronizer_;
-			utils::TRefCountPtr<BaseTask> task = CreateTask(
-				[function = std::forward<F>(functor)](BaseTask&) mutable {std::invoke(function); },
-				flags LOCATION_PASS);
-
-			utils::TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
-			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
-			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
-				assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
-			Gate* pre_req[] = { to_sync };
-
-			TaskSystem::HandlePrerequires(*task, pre_req);
-		}
-
 		template<typename T = void>
-		static utils::TRefCountPtr<Future<T>> MakeFuture()
+		static TRefCountPtr<Future<T>> MakeFuture()
 		{
 			static_assert(sizeof(GenericFuture) == sizeof(Future<T>));
 			return MakeGenericFuture().Cast<Future<T>>();
@@ -166,17 +143,18 @@ namespace ts
 
 #pragma region private
 	private:
-		static utils::TRefCountPtr<BaseTask> CreateTask(std::move_only_function<void(BaseTask&)> function,
+		static TRefCountPtr<BaseTask> CreateTask(std::move_only_function<void(BaseTask&)> function,
 			ETaskFlags flags = ETaskFlags::None LOCATION_PARAM);
 
 		static void HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers = {});
 
-		static utils::TRefCountPtr<GenericFuture> MakeGenericFuture();
+		static TRefCountPtr<GenericFuture> MakeGenericFuture();
 
-		static void OnReadyToExecute(utils::TRefCountPtr<BaseTask> task);
+		static void OnReadyToExecute(TRefCountPtr<BaseTask> task);
 
 		friend class BaseTask;
 		template<typename T> friend class GuardedResource;
+		template<SyncPtr TPtr> friend struct AccessSynchronizerTaskAwaiter;
 #pragma endregion
 	};
 

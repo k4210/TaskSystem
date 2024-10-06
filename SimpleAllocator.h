@@ -3,7 +3,7 @@
 #include "LockFree.h"
 #include <cstdlib>
 #include <iostream>
-namespace utils
+namespace ts
 {
 	struct BlockHeader
 	{
@@ -73,7 +73,7 @@ namespace utils
 		void ensure_all_free()
 		{
 			uint32 local_counter = 0;
-			LockFree::PointerBasedStack<BlockHeader> temp;
+			lock_free::PointerBasedStack<BlockHeader> temp;
 			while (BlockHeader* block = free_.Pop())
 			{
 				temp.Push(*block);
@@ -90,7 +90,7 @@ namespace utils
 		const std::size_t block_size_; //including header
 
 	private:
-		LockFree::PointerBasedStack<BlockHeader> free_;
+		lock_free::PointerBasedStack<BlockHeader> free_;
 
 		DEBUG_CODE(std::atomic<uint32> counter_ = 0;)
 

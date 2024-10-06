@@ -8,23 +8,23 @@ namespace ts
 	struct AccessSynchronizer
 	{
 		//returns prerequire, to insert
-		utils::TRefCountPoolPtr<BaseTask> Sync(BaseTask& task)
+		TRefCountPoolPtr<BaseTask> Sync(BaseTask& task)
 		{
 			task.AddRef();
-			const Index prev_idx = last_task_.exchange(utils::GetPoolIndex(task));
+			const Index prev_idx = last_task_.exchange(GetPoolIndex(task));
 			DEBUG_CODE(BaseTask* prev = (prev_idx != kInvalidIndex)
-				? &utils::FromPoolIndex<BaseTask>(prev_idx) 
+				? &FromPoolIndex<BaseTask>(prev_idx) 
 				: nullptr;)
 			assert(prev != &task);
 			assert(!prev || (prev->GetRefCount() > 1) || prev->GetGate()->IsEmpty());
-			return utils::TRefCountPoolPtr<BaseTask>(prev_idx, false);
+			return TRefCountPoolPtr<BaseTask>(prev_idx, false);
 		}
 
 		bool SyncIfAvailible(BaseTask& task)
 		{
 			Index expexted = kInvalidIndex;
 			task.AddRef();
-			const bool replaced = last_task_.compare_exchange_strong(expexted, utils::GetPoolIndex(task));
+			const bool replaced = last_task_.compare_exchange_strong(expexted, GetPoolIndex(task));
 			if (!replaced)
 			{
 				task.Release();
@@ -34,7 +34,7 @@ namespace ts
 
 		void Release(BaseTask& task)
 		{
-			Index expexted = utils::GetPoolIndex(task);
+			Index expexted = GetPoolIndex(task);
 			const bool replaced = last_task_.compare_exchange_strong(expexted, kInvalidIndex);
 			assert(!replaced || task.GetRefCount() > 1);
 			if (replaced)
@@ -151,8 +151,32 @@ namespace ts
 		}
 		void await_suspend(std::coroutine_handle<> handle)
 		{
-			assert(handle);
-			TaskSystem::InitializeResumeTaskOn([handle]() {handle.resume(); }, resource_);
+			TRefCountPtr<BaseTask> task;
+#if TASK_RETRIGGER
+			BaseTask* local_current_task = BaseTask::GetCurrentTask();
+			if (local_current_task && (kInvalidIndex != t_worker_thread_idx) 
+				&& (local_current_task->GetRefCount() == 1)) // So noone can insert dependency during this scope
+			{
+				local_current_task->SetRetrigger();
+				local_current_task->GetGate()->Unblock(ETaskState::PendingOrExecuting);
+				assert(local_current_task->GetRefCount() == 1); // If dependency is added here, then there may be a deadlock
+				task = local_current_task;
+			}
+			else
+#endif
+			{
+				assert(handle);
+				task = TaskSystem::CreateTask([handle](BaseTask&){ handle.resume(); });
+			}
+
+			assert(resource_);
+			AccessSynchronizer& synchronizer = resource_->synchronizer_;
+			TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
+			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
+			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
+			assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
+			Gate* pre_req[] = { to_sync };
+			TaskSystem::HandlePrerequires(*task, pre_req);
 		}
 		auto await_resume()
 		{

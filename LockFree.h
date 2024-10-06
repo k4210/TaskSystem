@@ -7,7 +7,7 @@
 #include <array>
 #include "Common.h"
 
-namespace LockFree
+namespace ts::lock_free
 {
 	using Tag = uint16;
 
@@ -16,7 +16,7 @@ namespace LockFree
 	{
 		void Push(Node& node)
 		{
-			const Index idx = utils::GetPoolIndex(node);
+			const Index idx = GetPoolIndex(node);
 			State new_state{ .head = idx };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -32,8 +32,8 @@ namespace LockFree
 		{
 			assert([&]() -> bool
 				{
-					const Index wanted = utils::GetPoolIndex(chain_tail);
-					Index local = utils::GetPoolIndex(new_head);
+					const Index wanted = GetPoolIndex(chain_tail);
+					Index local = GetPoolIndex(new_head);
 					for (int32 counter = 0; counter < 2048; counter++)
 					{
 						if (local == wanted)
@@ -44,11 +44,11 @@ namespace LockFree
 						{
 							break;
 						}
-						local = utils::FromPoolIndex<Node>(local).next_;
+						local = FromPoolIndex<Node>(local).next_;
 					}
 					return false;
 				}());
-			const Index idx = utils::GetPoolIndex(new_head);
+			const Index idx = GetPoolIndex(new_head);
 			State new_state{ .head = idx };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -70,13 +70,13 @@ namespace LockFree
 				{
 					return nullptr;
 				}
-				new_state.head = utils::FromPoolIndex<Node>(state.head).next_;
+				new_state.head = FromPoolIndex<Node>(state.head).next_;
 				new_state.tag = state.tag + 1;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
-			Node& node = utils::FromPoolIndex<Node>(state.head);
+			Node& node = FromPoolIndex<Node>(state.head);
 			node.next_ = kInvalidIndex;
 			return &node;
 		}
@@ -185,7 +185,7 @@ namespace LockFree
 		//return if the element was added
 		bool Add(Node& node, const Gate required_open)
 		{
-			const Index idx = utils::GetPoolIndex(node);
+			const Index idx = GetPoolIndex(node);
 			const State new_state{ .head = idx, .gate = required_open };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -204,7 +204,7 @@ namespace LockFree
 		// Returns old gate
 		Gate AddForceOpen(Node& node, const Gate open)
 		{
-			const Index idx = utils::GetPoolIndex(node);
+			const Index idx = GetPoolIndex(node);
 			const State new_state{ .head = idx, .gate = open };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -260,7 +260,7 @@ namespace LockFree
 			Index head = old_state.head;
 			while (head != kInvalidIndex)
 			{
-				Node& node = utils::FromPoolIndex<Node>(head);
+				Node& node = FromPoolIndex<Node>(head);
 				head = node.next_;
 				func(node); // node.next_ should be handled here
 			}

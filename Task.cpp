@@ -4,41 +4,31 @@
 
 namespace ts
 {
-	constexpr std::size_t InitPoolSizePerThread(std::size_t pool_size)
-	{
-		return (pool_size / kWorkeThreadsNum) / 4;
-	}
-
-	constexpr std::size_t MaxPoolSizePerThread(std::size_t pool_size)
-	{
-		return 3 * (pool_size / kWorkeThreadsNum) / 8;
-	}
-
 	struct TaskSystemGlobals
 	{
-		utils::Pool<BaseTask, kTaskPoolSize
+		Pool<BaseTask, kTaskPoolSize
 #if THREAD_SMART_POOL
 			, kWorkeThreadsNum, InitPoolSizePerThread(kTaskPoolSize), MaxPoolSizePerThread(kTaskPoolSize)
 #endif
 		> task_pool_;
-		utils::Pool<DependencyNode, kDepNodePoolSize
+		Pool<DependencyNode, kDepNodePoolSize
 #if THREAD_SMART_POOL
 			, kWorkeThreadsNum, InitPoolSizePerThread(kDepNodePoolSize), MaxPoolSizePerThread(kDepNodePoolSize)
 #endif
 		> dependency_pool_;
-		utils::Pool<GenericFuture, kFuturePoolSize
+		Pool<GenericFuture, kFuturePoolSize
 #if THREAD_SMART_POOL
 			, kWorkeThreadsNum, InitPoolSizePerThread(kFuturePoolSize), MaxPoolSizePerThread(kFuturePoolSize)
 #endif
 		> future_pool_;
-		LockFree::Stack<BaseTask> ready_to_execute_;
-		std::array<LockFree::Stack<BaseTask>, 5>  ready_to_execute_named;
+		lock_free::Stack<BaseTask> ready_to_execute_;
+		std::array<lock_free::Stack<BaseTask>, 5>  ready_to_execute_named;
 
 		std::array<std::thread, kWorkeThreadsNum> threads_;
 		bool working_ = false;
 		std::atomic<uint8> used_threads_ = 0;
 
-		LockFree::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
+		lock_free::Stack<BaseTask>& ReadyStack(ETaskFlags flag)
 		{
 			int32 counter = 0;
 			for (ETaskFlags thread_name : { ETaskFlags::NamedThread1, ETaskFlags::NamedThread2, ETaskFlags::NamedThread3, ETaskFlags::NamedThread4, ETaskFlags::NamedThread5})
@@ -55,7 +45,7 @@ namespace ts
 	static TaskSystemGlobals globals;
 	thread_local static BaseTask* current_task = nullptr;
 
-	void BaseTask::OnUnblocked(utils::TRefCountPtr<BaseTask> task, utils::TRefCountPtr<BaseTask>* out_first_ready_dependency)
+	void BaseTask::OnUnblocked(TRefCountPtr<BaseTask> task, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	{
 		assert(task);
 		assert(task->prerequires_);
@@ -128,7 +118,7 @@ namespace ts
 				while (true)
 				{
 					BaseTask* pop_task = globals.ready_to_execute_.Pop();
-					utils::TRefCountPtr<BaseTask> task(pop_task, false);
+					TRefCountPtr<BaseTask> task(pop_task, false);
 					if (task)
 					{
 						if (!marked_as_used)
@@ -139,7 +129,7 @@ namespace ts
 
 						do
 						{
-							utils::TRefCountPtr<BaseTask> next = nullptr;
+							TRefCountPtr<BaseTask> next = nullptr;
 							task->Execute(&next);
 							task = std::move(next);
 						} while (task);
@@ -183,6 +173,9 @@ namespace ts
 		{
 			std::this_thread::yield();
 		}
+#if DO_POOL_STATS
+		globals.task_pool_.AssertEmpty();
+#endif
 	}
 
 	void TaskSystem::WaitForWorkerThreadsToJoin()
@@ -193,8 +186,9 @@ namespace ts
 		}
 		assert(!globals.ready_to_execute_.Pop());
 #if DO_POOL_STATS
-		assert(!globals.task_pool_.GetUsedNum());
+		globals.task_pool_.AssertEmpty();
 		std::cout << "Max used tasks: " << globals.task_pool_.GetMaxUsedNum() << std::endl;
+		std::cout << "Max used futures: " << globals.future_pool_.GetMaxUsedNum() << std::endl;
 		std::cout << "Max used dependency nodes: " << globals.dependency_pool_.GetMaxUsedNum() << std::endl;
 #endif
 	}
@@ -211,7 +205,7 @@ namespace ts
 		return !!task;
 	}
 
-	uint32 Gate::Unblock(ETaskState new_state, utils::TRefCountPtr<BaseTask>* out_first_ready_dependency)
+	uint32 Gate::Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	{
 		assert(GetState() == ETaskState::PendingOrExecuting
 			|| GetState() == ETaskState::PendingOrExecuting_NonBLocking);
@@ -243,7 +237,7 @@ namespace ts
 		return chain_len;
 	}
 
-	void BaseTask::Execute(utils::TRefCountPtr<BaseTask>* out_first_ready_dependency)
+	void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	{
 		assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 		assert(!prerequires_);
@@ -255,7 +249,13 @@ namespace ts
 		function_(*this);
 		current_task = nullptr;
 		assert(GetRefCount());
-
+#if TASK_RETRIGGER
+		if (retrigger_)
+		{
+			retrigger_ = false;
+			return;
+		}
+#endif
 		const ETaskState new_state = result_.HasValue() ? ETaskState::DoneUnconsumedResult : ETaskState::Done;
 		gate_.Unblock(new_state, out_first_ready_dependency);
 
@@ -264,7 +264,7 @@ namespace ts
 		assert(GetRefCount());
 	}
 
-	void TaskSystem::OnReadyToExecute(utils::TRefCountPtr<BaseTask> task)
+	void TaskSystem::OnReadyToExecute(TRefCountPtr<BaseTask> task)
 	{
 		assert(task->gate_.GetState() == ETaskState::PendingOrExecuting);
 		globals.ReadyStack(task->flag_).Push(*task);
@@ -276,19 +276,19 @@ namespace ts
 		return globals.task_pool_.GetPoolSpan();
 	}
 
-	utils::TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
+	TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
 	{
-		utils::TRefCountPtr<GenericFuture> future = globals.future_pool_.Acquire();
+		TRefCountPtr<GenericFuture> future = globals.future_pool_.Acquire();
 		assert(future->gate_.IsEmpty());
 		const ETaskState old_state = future->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);
 		assert(old_state == ETaskState::Nonexistent_Pooled);
 		return future;
 	}
 
-	utils::TRefCountPtr<BaseTask> TaskSystem::CreateTask(std::move_only_function<void(BaseTask&)> function, ETaskFlags flags
+	TRefCountPtr<BaseTask> TaskSystem::CreateTask(std::move_only_function<void(BaseTask&)> function, ETaskFlags flags
 		LOCATION_PARAM_IMPL)
 	{
-		utils::TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
+		TRefCountPtr<BaseTask> task = globals.task_pool_.Acquire();
 		assert(task);
 		assert(!task->function_);
 		DEBUG_CODE(task->source = location;)
@@ -367,11 +367,11 @@ namespace ts
 
 	}
 
-	void TaskSystem::AsyncResume(coroutine::DetachHandle handle LOCATION_PARAM_IMPL)
+	void TaskSystem::AsyncResume(DetachHandle handle LOCATION_PARAM_IMPL)
 	{
-		InitializeTask([handle = std::move(handle)]() mutable
+		InitializeTask([handle = handle.Detach()]()
 			{
-				handle.StartAndDetach();
+				handle.resume();
 			}, {}, ETaskFlags::None LOCATION_PASS);
 	}
 

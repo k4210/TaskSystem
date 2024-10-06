@@ -24,6 +24,8 @@ using uint8 = unsigned __int8;
 using uint16 = unsigned __int16;
 using int32 = __int32;
 using uint32 = unsigned __int32;
+using int64 = __int64;
+using uint64 = unsigned __int64;
 
 using Index = uint16;
 constexpr Index kInvalidIndex = std::numeric_limits<Index>::max();
@@ -53,7 +55,7 @@ constexpr EnumType enum_or(EnumType a, EnumType b)
 	return static_cast<EnumType>(static_cast<IntType>(a) | static_cast<IntType>(b));
 }
 
-namespace utils
+namespace ts
 {
 	template<typename Node>
 	Index GetPoolIndex(const Node& node)

@@ -1,9 +1,9 @@
 #include "Coroutine.h"
 #include "SimpleAllocator.h"
 
-namespace coroutine::detail
+namespace ts::detail
 {
-	utils::SimpleAllocator simple_allocator;
+	SimpleAllocator simple_allocator;
 
 	void* do_allocate(std::size_t size)
 	{

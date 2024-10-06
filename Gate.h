@@ -28,7 +28,7 @@ namespace ts
 			assert(!task_);
 		}
 #endif
-		utils::TRefCountPoolPtr<BaseTask> task_;
+		TRefCountPoolPtr<BaseTask> task_;
 
 		Index next_ = kInvalidIndex;
 	};
@@ -72,7 +72,7 @@ namespace ts
 		}
 
 		// return number of unblocked tasks
-		uint32 Unblock(ETaskState new_state, utils::TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+		uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 		bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
 		{
@@ -80,6 +80,6 @@ namespace ts
 		}
 
 	private:
-		LockFree::Collection<DependencyNode, ETaskState> depending_;
+		lock_free::Collection<DependencyNode, ETaskState> depending_;
 	};
 }

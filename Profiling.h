@@ -4,7 +4,7 @@
 #include <iostream>
 #include "Common.h"
 
-namespace utils
+namespace ts
 {
 	using TimeSpan = std::chrono::nanoseconds;
 	inline auto GetTime() { return std::chrono::high_resolution_clock::now(); }

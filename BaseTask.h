@@ -11,10 +11,19 @@ namespace ts
 		static std::span<BaseTask> GetPoolSpan();
 		static BaseTask* GetCurrentTask();
 
-		static void OnUnblocked(utils::TRefCountPtr<BaseTask> task, utils::TRefCountPtr<BaseTask>* out_first_ready_dependency);
-		void Execute(utils::TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+		static void OnUnblocked(TRefCountPtr<BaseTask> task, TRefCountPtr<BaseTask>* out_first_ready_dependency);
+		void Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 		ETaskFlags GetFlags() const { return flag_; }
+#if TASK_RETRIGGER
+		void SetRetrigger()
+		{
+			assert(!result_.HasValue());
+			assert(flag_ == ETaskFlags::None);
+			assert(!retrigger_);
+			retrigger_ = true;
+		}
+#endif
 #pragma region protected
 	protected:
 		friend class TaskSystem;
@@ -23,7 +32,9 @@ namespace ts
 
 		std::atomic<uint16> prerequires_ = 0;
 		ETaskFlags flag_ = ETaskFlags::None;
-
+#if TASK_RETRIGGER
+		bool retrigger_ = false;
+#endif
 		std::move_only_function<void(BaseTask&)> function_;
 		DEBUG_CODE(std::source_location source;)
 #pragma endregion

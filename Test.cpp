@@ -2,6 +2,7 @@
 #include "Task.h"
 #include "Test.h"
 #include "AccessSynchronizer.h"
+#include "TickSync.h"
 #include <array>
 #include <chrono>
 #include <iostream>
@@ -11,15 +12,14 @@
 #define COROUTINE_TEST 1
 #define NAMED_THREAD_TEST 1
 #define SYNCH_TEST 1
-#define GENERATOR_TEST 1
+#define TICK_TEST 1
+#define GENERATOR_TEST 0
 
 using namespace std::chrono_literals;
 
 std::atomic_int32_t counter = 0;
 
 using namespace ts;
-using namespace utils;
-using namespace coroutine;
 
 TDetachCoroutine CoroutineTest(int32 in_val)
 {
@@ -72,6 +72,8 @@ public:
 		});
 	}
 };
+
+std::atomic<uint64> global_counter = 0;
 
 int main()
 {
@@ -175,7 +177,7 @@ int main()
 			.name = "Coroutines complex",
 			.included_cleanup = WaitForTasks,
 		});
-	coroutine::detail::ensure_allocator_free();
+	detail::ensure_allocator_free();
 
 	PerformTest([](uint32)
 		{
@@ -185,7 +187,7 @@ int main()
 			.name = "Coroutines complex async",
 			.included_cleanup = WaitForTasks,
 		});
-		coroutine::detail::ensure_allocator_free();
+		detail::ensure_allocator_free();
 
 	{
 		std::array<TUniqueCoroutine<int32>, 1024> handles;
@@ -215,7 +217,7 @@ int main()
 				.included_cleanup = WaitForTasks,
 				.excluded_cleanup = ResetHandles
 			});
-		coroutine::detail::ensure_allocator_free();
+		detail::ensure_allocator_free();
 	}
 #endif
 #if NAMED_THREAD_TEST
@@ -288,8 +290,30 @@ int main()
 				.excluded_cleanup = [&]()
 				{
 					asset_ptr->debug_data_.clear();
-					asset2_ptr->debug_data_.clear();
+				 	asset2_ptr->debug_data_.clear();
 				}
+			});
+	}
+#endif
+#if TICK_TEST
+	{
+		TickSync tick_sync;
+		PerformTest([&](uint32)
+			{
+				TaskSystem::AsyncResume([](TickSync& tick_sync) -> TDetachCoroutine
+					{
+						TickScope tick_scope(tick_sync);
+						for (int32 i = 0; i < 32; i++)
+						{
+							global_counter++;
+							co_await tick_scope.WaitForNextFrame();
+						}
+					}(tick_sync));
+			}, TestDetails
+			{
+				.inner_num = 512,
+				.name = "TickSync",
+				.included_cleanup = WaitForTasks,
 			});
 	}
 #endif
@@ -322,6 +346,6 @@ int main()
 		std::cout << "\nGenerator test done\n";
 	}
 #endif
-	coroutine::detail::ensure_allocator_free();
+	detail::ensure_allocator_free();
 	return 0;
 }

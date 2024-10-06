@@ -9,7 +9,13 @@ namespace ts
 	extern thread_local uint16 t_worker_thread_idx;
 }
 
-namespace utils
+#if DO_POOL_STATS
+#define POOL_STATS(x) x
+#else
+#define POOL_STATS(x)
+#endif
+
+namespace ts
 {
 	template<typename Node>
 	struct UnsafeStack
@@ -43,12 +49,6 @@ namespace utils
 			return &node;
 		}
 
-		//return previous head
-		Index Reset(Index new_head = kInvalidIndex)
-		{
-			return std::exchange(head_, new_head);
-		}
-
 		uint16 GetSize() const { return size_; }
 
 	private:
@@ -70,6 +70,7 @@ namespace utils
 				all_[Idx - 1].next_ = Idx;
 			}
 			Index first_remaining = 0;
+			POOL_STATS(global_free_counter_= Size;)
 #if THREAD_SMART_POOL
 			for (int32 thread_idx = 0; thread_idx < NumThreads; thread_idx++)
 			{
@@ -79,6 +80,8 @@ namespace utils
 				stack.PushChain(all_[first_remaining], all_[last_element], ElementsPerThread);
 				first_remaining += ElementsPerThread;
 			}
+			POOL_STATS(global_free_counter_ -= NumThreads * ElementsPerThread;)
+			POOL_STATS(thread_free_counter_ = NumThreads * ElementsPerThread;)
 #endif
 			free_.Reset(first_remaining);
 		}
@@ -86,8 +89,8 @@ namespace utils
 #if THREAD_SMART_POOL
 		UnsafeStack<Node>* GetStackPerThread()
 		{
-			return (ts::t_worker_thread_idx != kInvalidIndex)
-				? &free_per_thread_[ts::t_worker_thread_idx]
+			return (t_worker_thread_idx != kInvalidIndex)
+				? &free_per_thread_[t_worker_thread_idx]
 				: nullptr;
 		}
 #endif
@@ -96,7 +99,8 @@ namespace utils
 		{
 #if THREAD_SMART_POOL
 			UnsafeStack<Node>* thread_stack = GetStackPerThread();
-			Node* ptr = (thread_stack && thread_stack->GetSize())
+			const bool use_thread_stack = (thread_stack && thread_stack->GetSize());
+			Node* ptr = use_thread_stack
 				? thread_stack->Pop()
 				: free_.Pop();
 #else
@@ -107,6 +111,18 @@ namespace utils
 			{
 				uint32 loc_counter = ++used_counter_;
 				max_used = std::max(loc_counter, max_used);
+#if THREAD_SMART_POOL
+				if (!use_thread_stack)
+				{
+					assert(global_free_counter_ > 0);
+					global_free_counter_--;
+				}
+				else
+				{
+					assert(thread_free_counter_ > 0);
+					thread_free_counter_--;
+				}
+#endif
 			}
 #endif
 			assert(ptr);
@@ -119,16 +135,17 @@ namespace utils
 			{
 				node.OnReturnToPool();
 			}
-#if DO_POOL_STATS
-			--used_counter_;
-#endif
+			POOL_STATS(assert(used_counter_ > 0);)
+			POOL_STATS(used_counter_--;)
 #if THREAD_SMART_POOL
 			UnsafeStack<Node>* thread_stack = GetStackPerThread();
 			if (thread_stack && (thread_stack->GetSize() < MaxElementsPerThread))
 			{
 				thread_stack->Push(node);
+				POOL_STATS(thread_free_counter_++;)
 				return;
 			}
+			POOL_STATS(global_free_counter_++;)
 #endif
 			free_.Push(node);
 		}
@@ -136,14 +153,7 @@ namespace utils
 		void ReturnChain(Node& new_head, Node& chain_tail, [[maybe_unused]] uint16 chain_len)
 		{
 			assert(chain_tail.next_ == kInvalidIndex);
-#if DO_POOL_STATS
-			for (Index iter = GetPoolIndex(new_head);
-				iter != kInvalidIndex;
-				iter = FromPoolIndex<Node>(iter).next_)
-			{
-				--used_counter_;
-			}
-#endif
+			POOL_STATS(used_counter_ -= chain_len;)
 			if constexpr (requires { new_head.OnReturnToPool(); })
 			{
 				for (Index iter = GetPoolIndex(new_head);
@@ -158,8 +168,10 @@ namespace utils
 			if (thread_stack && ((thread_stack->GetSize() + chain_len) <= MaxElementsPerThread))
 			{
 				thread_stack->PushChain(new_head, chain_tail, chain_len);
+				POOL_STATS(thread_free_counter_ += chain_len;)
 				return;
 			}
+			POOL_STATS(global_free_counter_ += chain_len;)
 #endif
 			free_.PushChain(new_head, chain_tail);
 		}
@@ -178,13 +190,24 @@ namespace utils
 #if DO_POOL_STATS
 		uint32 GetMaxUsedNum() { return max_used; }
 		uint32 GetUsedNum() { return used_counter_; }
+		void AssertEmpty()
+		{
+			assert(!used_counter_);
+			assert(thread_free_counter_ + global_free_counter_ == Size);
+		}
+		~Pool()
+		{
+			AssertEmpty();
+		}
 #endif
 
 	private:
-		LockFree::Stack<Node> free_;
+		lock_free::Stack<Node> free_;
 		std::array<Node, Size> all_;
 #if DO_POOL_STATS
 		std::atomic_uint32_t used_counter_ = 0;
+		std::atomic_uint32_t global_free_counter_ = 0;
+		std::atomic_uint32_t thread_free_counter_ = 0;
 		uint32 max_used = 0;
 #endif
 #if THREAD_SMART_POOL

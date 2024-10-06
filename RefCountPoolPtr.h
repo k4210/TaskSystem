@@ -3,7 +3,7 @@
 #include "RefCount.h"
 #include "Pool.h"
 
-namespace utils
+namespace ts
 {
 	//Node must be both ref counted and pooled
 	template<typename Node>
