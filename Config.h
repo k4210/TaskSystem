@@ -16,9 +16,9 @@
 
 namespace ts
 {
-	constexpr std::size_t kWorkeThreadsNum = 16;
-	constexpr std::size_t kTaskPoolSize = 2048;
-	constexpr std::size_t kDepNodePoolSize = 2048;
+	constexpr std::size_t kWorkeThreadsNum = 32;
+	constexpr std::size_t kTaskPoolSize = 1024 * 8;
+	constexpr std::size_t kDepNodePoolSize = 1024 * 8;
 	constexpr std::size_t kFuturePoolSize = 2048;
 
 	constexpr std::size_t InitPoolSizePerThread(std::size_t pool_size)

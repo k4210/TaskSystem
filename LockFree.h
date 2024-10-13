@@ -34,7 +34,7 @@ namespace ts::lock_free
 				{
 					const Index wanted = GetPoolIndex(chain_tail);
 					Index local = GetPoolIndex(new_head);
-					for (int32 counter = 0; counter < 2048; counter++)
+					for (int32 counter = 0; counter < (8 * 1024); counter++)
 					{
 						if (local == wanted)
 						{

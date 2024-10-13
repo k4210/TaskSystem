@@ -111,7 +111,7 @@ namespace ts
 			assert(gate->GetState() == ETaskState::PendingOrExecuting);
 			assert(AccessSynchronizer::is_any_asset_locked_);
 			DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
-				resource_->synchronizer_.Release(*local_current_task);
+			resource_->synchronizer_.Release(*local_current_task);
 			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting_NonBLocking);
 			assert(unblocked <= 1);
 			assert(gate->IsEmpty());

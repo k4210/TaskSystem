@@ -8,11 +8,12 @@ namespace ts
 		static inline constexpr uint32 kNumberOfFutures = 4;
 		static inline constexpr uint32 kFutureOffset = 2;
 
-		TickSync()
+		void Initialize(std::move_only_function<void(uint32)> on_frame_ready)
 		{
+			on_frame_ready_ = std::move(on_frame_ready);
 			for (uint32 idx = 0; idx < kFutureOffset; idx++)
 			{
-				futures_[idx]  = TaskSystem::MakeFuture();
+				futures_[idx] = TaskSystem::MakeFuture<uint32>();
 			}
 		}
 
@@ -29,7 +30,7 @@ namespace ts
 		}
 
 		// frame_id will be incremented
-		TRefCountPtr<Future<>> WaitForNextFrame(/*uint16& frame_id*/)
+		TRefCountPtr<Future<uint32>> WaitForNextFrame(/*uint16& frame_id*/)
 		{
 			const uint32 future_idx = InnerUpdate([](State& state) { state.waiting_ += 1; });
 			assert(futures_[future_idx]);
@@ -69,21 +70,27 @@ namespace ts
 			const uint32 future_idx = state.frame_id_ % kNumberOfFutures;
 			if (frame_ready)
 			{
+				if (on_frame_ready_)
+				{
+					on_frame_ready_(state.frame_id_);
+				}
+
 				const uint32 reset_idx = (future_idx + kFutureOffset) % kNumberOfFutures;
-				TRefCountPtr<Future<>>& reset_future = futures_[reset_idx];
+				TRefCountPtr<Future<uint32>>& reset_future = futures_[reset_idx];
 				assert(!reset_future || !reset_future->IsPendingOrExecuting());
 				assert(!reset_future || reset_future->GetGate()->IsEmpty());
-				reset_future = TaskSystem::MakeFuture(); //let's hope noone is reading it anymore
+				reset_future = TaskSystem::MakeFuture<uint32>(); //let's hope noone is reading it anymore
 
 				assert(futures_[future_idx] && futures_[future_idx]->IsPendingOrExecuting());
-				futures_[future_idx]->Done();
+				futures_[future_idx]->Done(state.frame_id_);
 			}
 
 			return future_idx;
 		}
 
-		std::array<TRefCountPtr<Future<>>, kNumberOfFutures> futures_;
+		std::array<TRefCountPtr<Future<uint32>>, kNumberOfFutures> futures_;
 		std::atomic<State> state_;
+		std::move_only_function<void(uint32)> on_frame_ready_;
 	};
 
 	struct TickScope
@@ -94,7 +101,7 @@ namespace ts
 			tick_sync_.RegisterNeededTick();
 		}
 
-		TRefCountPtr<Future<>> WaitForNextFrame()
+		TRefCountPtr<Future<uint32>> WaitForNextFrame()
 		{
 			return tick_sync_.WaitForNextFrame();
 		}

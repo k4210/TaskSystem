@@ -96,6 +96,13 @@ namespace ts
 			return common->result_.Get<T>();
 		}
 
+		T ShareResultByValue() const
+		{
+			const DerivedType* common = static_cast<const DerivedType*>(this);
+			assert(common->gate_.GetState() == ETaskState::DoneUnconsumedResult);
+			return common->result_.Get<T>();
+		}
+
 		template<typename F>
 		auto ThenRead(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
 		{
@@ -145,7 +152,7 @@ namespace ts
 	class Future : public GenericFuture, public CommonSpecialization<T, Future<T>>
 	{
 	public:
-		void Done(T&& val)
+		void Done(T val)
 		{
 			assert(gate_.GetState() == ETaskState::PendingOrExecuting);
 			assert(!result_.HasValue());
@@ -193,7 +200,7 @@ namespace ts
 			inner_task_ = nullptr;
 			if constexpr (!std::is_void_v<ReturnType>)
 			{
-				return moved_task->DropResult();
+				return moved_task->ShareResultByValue();
 			}
 		}
 	};

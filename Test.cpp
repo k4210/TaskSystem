@@ -8,6 +8,8 @@
 #include <iostream>
 #include <vector>
 
+#if 0
+
 #define TASK_TEST 1
 #define COROUTINE_TEST 1
 #define NAMED_THREAD_TEST 1
@@ -349,3 +351,5 @@ int main()
 	detail::ensure_allocator_free();
 	return 0;
 }
+
+#endif
