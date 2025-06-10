@@ -2,6 +2,7 @@ Task system + coroutines
 
 The main idea is to write code like this:
 
+```
 [](AssetHolder in_asset, AssetHolder in_asset2) -> TDetachCoroutine
 {
 ....
@@ -11,6 +12,7 @@ The main idea is to write code like this:
   }
 ....
 }
+```
 
 When the asset is not accessible, the thread will pick up another task. No worker thread should be ever halt, due to a synchronization.
 
