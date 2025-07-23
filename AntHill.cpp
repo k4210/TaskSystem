@@ -4,12 +4,10 @@
 #include "TickSync.h"
 #include "Profiling.h"
 #include <cstdlib>
-
+#if !TEST_MAIN
 #include <SFML/Graphics.hpp>
 
 using namespace ts;
-
-TickSync tick_sync;
 bool g_running = true;
 
 struct GraphicContainer
@@ -35,14 +33,13 @@ struct GraphicContainer
 };
 
 constexpr uint32 number_ants = 3 * 1024;
-constexpr float resolution = 1600;
+constexpr uint32 resolution = 1024;
 
-TDetachCoroutine render(GraphicContainer& graphic_container)
+TDetachCoroutine render(GraphicContainer& graphic_container, TickSync& tick_sync)
 {
-    sf::Font font;
-    font.loadFromFile("../../tuffy.ttf");
+    sf::Font font("tuffy.ttf");
 
-    sf::RenderWindow window(sf::VideoMode(1600, 1600), "Anthill");
+    sf::RenderWindow window(sf::VideoMode(sf::Vector2u(resolution, resolution)), "Anthill");
     window.display();
 
     TickScope tick_scope(tick_sync);
@@ -51,10 +48,9 @@ TDetachCoroutine render(GraphicContainer& graphic_container)
     while (window.isOpen())
     {
         TimeType start_time = GetTime();
-        sf::Event event;
-        while (window.pollEvent(event))
+        while (auto event = window.pollEvent())
         {
-            if (event.type == sf::Event::Closed)
+            if (event->is<sf::Event::Closed>())
             {
                 TaskSystem::StopWorkerThreadsNoWait();
                 window.close();
@@ -70,28 +66,30 @@ TDetachCoroutine render(GraphicContainer& graphic_container)
         }
         [&]() // Draw FPS
         {
-            sf::Text text;
-            text.setFont(font);
-            text.setString(std::to_string(ms_duration)+"/"+ std::to_string(ms_duration_graphic));
-            text.setCharacterSize(48);
+            sf::Text text(
+                font,
+                std::to_string(ms_duration)+"/"+ std::to_string(ms_duration_graphic),
+                48);
             text.setFillColor(sf::Color::Red);
             window.draw(text);
         }();
         window.display();
-        window.setActive(false);
+        const bool success = window.setActive(false);
+        assert(success);
         ms_duration_graphic = ToMiliseconds(GetTime() - start_time);
         co_await tick_scope.WaitForNextFrame();
         ms_duration = ToMiliseconds(GetTime() - start_time);
     }
 }
 
-TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx)
+TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx, TickSync& tick_sync)
 {
-    float x = std::abs(std::rand()) / resolution;
-    float y = std::abs(std::rand()) / resolution;
+    float x = static_cast<float>(std::abs(std::rand()) % resolution);
+    float y = static_cast<float>(std::abs(std::rand()) % resolution);
 
-    float dx = (std::rand() % 1024) / 1024.0f;
-    float dy = (std::rand() % 1024) / 1024.0f;
+    constexpr float speed = 1.0f;
+    float dx = speed * ((std::rand() % 1024) - 512) / 512.0f;
+    float dy = speed * ((std::rand() % 1024) - 512) / 512.0f;
 
     TickScope tick_scope(tick_sync);
     while (g_running)
@@ -114,9 +112,8 @@ TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx)
         update(y, dy);
 
         {
-            //AccessScopeCo<GraphicContainer*> guard = co_await graphic_container;
             sf::CircleShape& shape = graphic_container.GetWrite()[idx];
-            shape.setPosition(x, y);
+            shape.setPosition(sf::Vector2f(x, y));
             shape.setRadius(10.0f);
         }
         co_await tick_scope.WaitForNextFrame();
@@ -132,17 +129,18 @@ int main()
     graphic_container.components_[0].resize(number_ants);
     graphic_container.components_[1].resize(number_ants);
 
+    TickSync tick_sync;
     tick_sync.Initialize([&](uint32)
         {
             graphic_container.OnFrameReady();
         });
 
-    TaskSystem::AsyncResume(render(graphic_container));
+    TaskSystem::AsyncResume(render(graphic_container, tick_sync));
 
     //SyncHolder<GraphicContainer*> graphic_holder(&graphic_container);
     for (uint32 idx = 0; idx < number_ants; idx++)
     {
-        TaskSystem::AsyncResume(ant(graphic_container, idx));
+        TaskSystem::AsyncResume(ant(graphic_container, idx, tick_sync));
     }
 
     TaskSystem::WaitForWorkerThreadsToJoin();
@@ -150,3 +148,5 @@ int main()
 
     return 0;
 }
+
+#endif // !TEST_MAIN

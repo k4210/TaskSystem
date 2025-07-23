@@ -292,7 +292,7 @@ namespace ts
 		assert(task);
 		assert(!task->function_);
 		DEBUG_CODE(task->source = location;)
-			task->flag_ = flags;
+		task->flag_ = flags;
 		task->function_ = std::move(function);
 		assert(task->gate_.IsEmpty());
 		const ETaskState old_state = task->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);

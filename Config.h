@@ -8,6 +8,8 @@
 
 #define TASK_RETRIGGER 0
 
+#define TEST_MAIN 0
+
 #ifdef NDEBUG
 #define DO_POOL_STATS 0
 #else

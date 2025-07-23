@@ -5,6 +5,12 @@ namespace ts
 {
 	struct TickSync
 	{
+		TickSync() = default;
+		TickSync(TickSync&&) = delete;
+		TickSync(const TickSync&) = delete;
+		TickSync& operator=(TickSync&&) = delete;
+		TickSync& operator=(const TickSync&) = delete;
+
 		static inline constexpr uint32 kNumberOfFutures = 4;
 		static inline constexpr uint32 kFutureOffset = 2;
 
@@ -24,17 +30,29 @@ namespace ts
 			InnerUpdate([](State& state) { state.registered_ += 1; });
 		}
 
-		void UnregisterNeeded(/*uint16 first_missed_frame*/) //The entity does not wait.
+		void UnregisterNeeded(uint32 last_waited_frame_id_)
 		{
-			InnerUpdate([](State& state) { state.registered_ -= 1; });
+			InnerUpdate([last_waited_frame_id_](State& state) 
+				{ 
+					assert(last_waited_frame_id_ <= state.frame_id_ 
+						|| last_waited_frame_id_ == std::numeric_limits<uint32>::max());
+
+					state.registered_ -= 1;
+
+					if (state.frame_id_ == last_waited_frame_id_)
+					{
+						state.waiting_ -= 1;
+					}
+				});
 		}
 
 		// frame_id will be incremented
-		TRefCountPtr<Future<uint32>> WaitForNextFrame(/*uint16& frame_id*/)
+		TRefCountPtr<Future<uint32>> WaitForNextFrame(uint32& out_frame_id)
 		{
-			const uint32 future_idx = InnerUpdate([](State& state) { state.waiting_ += 1; });
-			assert(futures_[future_idx]);
-			return futures_[future_idx];
+			const auto [future_idx, frame_id, alt_result] = InnerUpdate([](State& state) { state.waiting_ += 1; });
+			assert(futures_[future_idx] || alt_result);
+			out_frame_id = frame_id;
+			return alt_result ? alt_result : futures_[future_idx];
 		}
 
 	private:
@@ -46,7 +64,7 @@ namespace ts
 		};
 
 		// returns future index
-		uint32 InnerUpdate(auto functor)
+		auto InnerUpdate(auto functor)
 		{
 			State state = state_.load(std::memory_order_relaxed);
 			State new_state;
@@ -68,24 +86,24 @@ namespace ts
 				std::memory_order_relaxed));
 
 			const uint32 future_idx = state.frame_id_ % kNumberOfFutures;
+			TRefCountPtr<Future<uint32>> alt_result = futures_[future_idx];
 			if (frame_ready)
 			{
+				const uint32 reset_idx = (future_idx + kFutureOffset) % kNumberOfFutures;
+				assert(!futures_[reset_idx]);
+				futures_[reset_idx] = TaskSystem::MakeFuture<uint32>();
+
 				if (on_frame_ready_)
 				{
 					on_frame_ready_(state.frame_id_);
 				}
 
-				const uint32 reset_idx = (future_idx + kFutureOffset) % kNumberOfFutures;
-				TRefCountPtr<Future<uint32>>& reset_future = futures_[reset_idx];
-				assert(!reset_future || !reset_future->IsPendingOrExecuting());
-				assert(!reset_future || reset_future->GetGate()->IsEmpty());
-				reset_future = TaskSystem::MakeFuture<uint32>(); //let's hope noone is reading it anymore
-
 				assert(futures_[future_idx] && futures_[future_idx]->IsPendingOrExecuting());
 				futures_[future_idx]->Done(state.frame_id_);
+				alt_result = futures_[future_idx];
 			}
-
-			return future_idx;
+			
+			return std::make_tuple(future_idx, state.frame_id_, alt_result);
 		}
 
 		std::array<TRefCountPtr<Future<uint32>>, kNumberOfFutures> futures_;
@@ -103,15 +121,16 @@ namespace ts
 
 		TRefCountPtr<Future<uint32>> WaitForNextFrame()
 		{
-			return tick_sync_.WaitForNextFrame();
+			return tick_sync_.WaitForNextFrame(last_waited_frame_id_);
 		}
 
 		~TickScope()
 		{
-			tick_sync_.UnregisterNeeded();
+			tick_sync_.UnregisterNeeded(last_waited_frame_id_);
 		}
 
 	private:
 		TickSync& tick_sync_;
+		uint32 last_waited_frame_id_ = std::numeric_limits<uint32>::max();
 	};
 }

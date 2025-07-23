@@ -170,8 +170,7 @@ namespace ts
 			}
 
 			assert(resource_);
-			AccessSynchronizer& synchronizer = resource_->synchronizer_;
-			TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
+			TRefCountPtr<BaseTask> prev_task_to_sync = resource_->synchronizer_.Sync(*task).ToRefCountPtr();
 			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
 			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
 			assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
