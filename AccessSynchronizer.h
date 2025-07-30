@@ -184,4 +184,60 @@ namespace ts
 	private:
 		TPtr resource_;
 	};
+/*
+	struct SharedAccessSynchronizer
+	{
+		//Returns prerequires
+		Collection SyncExclusive(BaseTask& task)
+		{
+			task.AddRef()
+			//excange with exclusive_task
+			//if shared collection is empty 
+			// return previous shared task (even if invalid, then return empty collection)
+			//else
+			// return shared collection
+			// clear shared collection (and its size)
+		}
+
+		TRefCountPoolPtr<BaseTask> SyncShared(BaseTask& task)
+		{
+			// add to shared collection
+			// return exclusive task
+		}
+
+		void ReleaseExclusive(BaseTask& task)
+		{
+			Index expexted = GetPoolIndex(task);
+			const bool replaced = last_exclusixe_task_.compare_exchange_strong(expexted, kInvalidIndex);
+			assert(!replaced || task.GetRefCount() > 1);
+			if (replaced)
+			{
+				task.Release();
+			}
+		}
+
+		void ReleaseShared(BaseTask& task)
+		{
+			// try to remove from shared collection? 
+			// otherise it will blocks done tasks, that could return to pool
+
+			//A counter could be used:
+			// if there is no exclusive task
+			// if size of collection equals num of released then reset both values..
+		}
+
+		bool IsLocked() const
+		{
+			return last_task_.load(std::memory_order_relaxed) != kInvalidIndex;
+		}
+
+		DEBUG_CODE(thread_local static bool is_any_asset_locked_;)
+	private:
+		//Atomic state to keep:
+		// last_exclusixe_task_
+		// shared collection
+		// size of shared collection
+		// number of released shared tasks
+	};
+	*/
 }

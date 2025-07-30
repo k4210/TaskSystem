@@ -90,7 +90,6 @@ namespace ts
 			if (frame_ready)
 			{
 				const uint32 reset_idx = (future_idx + kFutureOffset) % kNumberOfFutures;
-				assert(!futures_[reset_idx]);
 				futures_[reset_idx] = TaskSystem::MakeFuture<uint32>();
 
 				if (on_frame_ready_)
