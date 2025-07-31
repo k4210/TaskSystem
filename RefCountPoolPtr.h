@@ -70,7 +70,7 @@ namespace ts
 			return *this = other.Get();
 		}
 
-		TRefCountPtr<Node> ToRefCountPtr()&
+		TRefCountPtr<Node> ToRefCountPtr() const & 
 		{
 			return TRefCountPtr(Get());
 		}

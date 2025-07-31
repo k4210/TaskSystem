@@ -8,14 +8,14 @@
 
 #define TASK_RETRIGGER 0
 
-#define TEST_MAIN 1
-#define ANT_HILL 0
+#define TEST_MAIN 0
+#define ANT_HILL 1
 #define ANT_HILL_STD 0
 
 #ifdef NDEBUG
 #define DO_POOL_STATS 0
 #else
-#define DO_POOL_STATS 1
+#define DO_POOL_STATS 0
 #endif // _DEBUG
 
 namespace ts

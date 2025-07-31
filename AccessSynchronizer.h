@@ -162,10 +162,12 @@ namespace ts
 			assert(local_current_task);
 			Gate* gate = local_current_task->GetGate();
 			assert(gate->IsEmpty());
-			const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, true);
-			assert(prev_state == ETaskState::PendingOrExecuting);
-			const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task, local_current_task->GetTag());
-			return sync_with_current;
+			assert(gate->GetState() == ETaskState::PendingOrExecuting);
+			// Seems redundant:
+			//constexpr bool bump_tag = true;
+			//const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, bump_tag);
+			//assert(prev_state == ETaskState::PendingOrExecuting);
+			return resource_->synchronizer_.SyncIfAvailible(*local_current_task, local_current_task->GetTag());
 		}
 		void await_suspend(std::coroutine_handle<> handle)
 		{
@@ -188,13 +190,14 @@ namespace ts
 			}
 
 			assert(resource_);
-			AccessSynchronizer::SyncResult sync_result = resource_->synchronizer_.Sync(*task, task->GetTag());
+			const AccessSynchronizer::SyncResult sync_result = resource_->synchronizer_.Sync(*task, task->GetTag());
 			TRefCountPtr<BaseTask> prev_task_to_sync = sync_result.task_.ToRefCountPtr();
-			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
+			Gate* const to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
 			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
 			assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
-			Prerequire pre_req[] = { {to_sync, sync_result.tag_} };
-			TaskSystem::HandlePrerequires(*task, pre_req);
+			Gate* pre_req[] = { to_sync };
+			uint8 pre_req_tags[] = { sync_result.tag_ };
+			TaskSystem::HandlePrerequires(*task, pre_req, pre_req_tags);
 		}
 		auto await_resume()
 		{
@@ -210,7 +213,7 @@ namespace ts
 		Collection SyncExclusive(BaseTask& task)
 		{
 			task.AddRef()
-			//excange with exclusive_task
+			//exchange with exclusive_task
 			//if shared collection is empty 
 			// return previous shared task (even if invalid, then return empty collection)
 			//else
@@ -254,7 +257,7 @@ namespace ts
 	private:
 		//Atomic state to keep:
 		// last_exclusixe_task_
-		// shared collection
+		// shared collection of tasks that will just read
 		// size of shared collection
 		// number of released shared tasks
 	};

@@ -87,10 +87,4 @@ namespace ts
 	private:
 		lock_free::Collection<DependencyNode, ETaskState> depending_;
 	};
-
-	struct Prerequire
-	{
-		Gate* gate_ = nullptr;
-		uint8 tag_ = 0;
-	};
 }

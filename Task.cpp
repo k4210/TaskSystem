@@ -300,8 +300,9 @@ namespace ts
 		return task;
 	}
 
-	void TaskSystem::HandlePrerequires(BaseTask& task, std::span<Prerequire> prerequiers)
+	void TaskSystem::HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers, std::span<uint8> prerequiers_tags)
 	{
+		assert(!prerequiers_tags.size() || prerequiers.size() == prerequiers_tags.size());
 		task.prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
 
 		auto ProcessOnReady = [&]()
@@ -324,74 +325,9 @@ namespace ts
 
 		uint16 inactive_prereq = 0;
 		DependencyNode* node = nullptr;
-		for (Prerequire prereq : prerequiers)
+		for(int32 index = 0; index < prerequiers.size(); index++)
 		{
-			if (!prereq.gate_ || (prereq.gate_->GetState() != ETaskState::PendingOrExecuting))
-			{
-				inactive_prereq++;
-				continue;
-			}
-
-			if (!node)
-			{
-				node = &globals.dependency_pool_.Acquire();
-				node->task_ = task;
-			}
-
-			const bool added = prereq.gate_->AddDependencyInner(*node, ETaskState::PendingOrExecuting, prereq.tag_);
-			if (added)
-			{
-				node = nullptr;
-			}
-			else
-			{
-				inactive_prereq++;
-			}
-		}
-		if (node)
-		{
-			node->task_ = nullptr;
-			globals.dependency_pool_.Return(*node);
-		}
-
-		if (inactive_prereq)
-		{
-			const uint16 before = task.prerequires_.fetch_sub(inactive_prereq);
-			if (before == inactive_prereq)
-			{
-				assert(task.prerequires_ == 0);
-				ProcessOnReady();
-			}
-		}
-
-	}
-
-	void TaskSystem::HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers)
-	{
-		task.prerequires_.store(static_cast<uint16>(prerequiers.size()), std::memory_order_relaxed);
-
-		auto ProcessOnReady = [&]()
-			{
-				if (enum_has_any(task.GetFlags(), ETaskFlags::TryExecuteImmediate))
-				{
-					task.Execute();
-				}
-				else
-				{
-					OnReadyToExecute(task);
-				}
-			};
-
-		if (!prerequiers.size())
-		{
-			ProcessOnReady();
-			return;
-		}
-
-		uint16 inactive_prereq = 0;
-		DependencyNode* node = nullptr;
-		for (Gate* prereq : prerequiers)
-		{
+			Gate* prereq = prerequiers[index];
 			if (!prereq || (prereq->GetState() != ETaskState::PendingOrExecuting))
 			{
 				inactive_prereq++;
@@ -404,7 +340,9 @@ namespace ts
 				node->task_ = task;
 			}
 
-			const bool added = prereq->AddDependencyInner(*node, ETaskState::PendingOrExecuting);
+			const bool added = prerequiers_tags.size()
+				? prereq->AddDependencyInner(*node, ETaskState::PendingOrExecuting, prerequiers_tags[index])
+				: prereq->AddDependencyInner(*node, ETaskState::PendingOrExecuting);
 			if (added)
 			{
 				node = nullptr;
