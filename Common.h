@@ -4,6 +4,7 @@
 #include <source_location>
 #include <span>
 #include <limits>
+#include <cassert>
 #include "Config.h"
 
 #ifdef NDEBUG

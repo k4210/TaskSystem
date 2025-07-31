@@ -2,6 +2,8 @@
 
 #include <iterator>
 #include <array>
+#include <algorithm>
+#include <random>
 #include "LockFree.h"
 
 namespace ts
@@ -65,16 +67,35 @@ namespace ts
 	{
 		Pool()
 		{
+#if 1
 			for (Index Idx = 1; Idx < Size; Idx++)
 			{
 				all_[Idx - 1].next_ = Idx;
 			}
 			Index first_remaining = 0;
+#else
+			std::vector<Index> initial_order;
+			initial_order.reserve(Size);
+			for (Index Idx = 0; Idx < Size; Idx++)
+			{
+				initial_order.push_back(Idx);
+			}
+			std::random_device rd;
+			std::mt19937 g(rd());
+			std::shuffle(initial_order.begin(), initial_order.end(), g);
+			for (Index Idx = 0; Idx < (Size - 1); Idx++)
+			{
+				all_[initial_order[Idx]].next_ = initial_order[Idx+1];
+			}
+
+			Index first_remaining = initial_order[0];
+#endif
+			
 			POOL_STATS(global_free_counter_= Size;)
 #if THREAD_SMART_POOL
 			for (int32 thread_idx = 0; thread_idx < NumThreads; thread_idx++)
 			{
-				UnsafeStack<Node> stack = free_per_thread_[thread_idx];
+				UnsafeStack<Node>& stack = free_per_thread_[thread_idx];
 				Index last_element = first_remaining + ElementsPerThread - 1;
 				all_[last_element].next_ = kInvalidIndex;
 				stack.PushChain(all_[first_remaining], all_[last_element], ElementsPerThread);

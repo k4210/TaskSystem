@@ -1,20 +1,17 @@
-#include "Coroutine.h"
-#include "Task.h"
-#include "AccessSynchronizer.h"
-#include "TickSync.h"
+#include "Config.h"
+
+#if ANT_HILL || ANT_HILL_STD
+
 #include "Profiling.h"
 #include <cstdlib>
-
 #include <SFML/Graphics.hpp>
 
-using namespace ts;
-
-TickSync tick_sync;
-bool g_running = true;
+constexpr uint32 number_ants = 3 * 1024;
+constexpr uint32 resolution = 1024;
 
 struct GraphicContainer
 {
-    AccessSynchronizer synchronizer_;
+    //AccessSynchronizer synchronizer_;
     std::vector<sf::CircleShape> components_[2];
     uint8 write_idx_ = 0;
 
@@ -34,27 +31,32 @@ struct GraphicContainer
     }
 };
 
-constexpr uint32 number_ants = 3 * 1024;
-constexpr float resolution = 1600;
+#endif // ANT_HILL || ANT_HILL_STD
 
-TDetachCoroutine render(GraphicContainer& graphic_container)
+#if ANT_HILL
+
+#include "Coroutine.h"
+#include "Task.h"
+#include "AccessSynchronizer.h"
+#include "TickSync.h"
+
+using namespace ts;
+bool g_running = true;
+
+TDetachCoroutine render(GraphicContainer& graphic_container, TickSync& tick_sync)
 {
-    sf::Font font;
-    font.loadFromFile("../../tuffy.ttf");
+    sf::Font font("tuffy.ttf");
 
-    sf::RenderWindow window(sf::VideoMode(1600, 1600), "Anthill");
+    sf::RenderWindow window(sf::VideoMode(sf::Vector2u(resolution, resolution)), "Anthill");
     window.display();
-
+    AvgTime event_avg, render_avg, wait_avg;
     TickScope tick_scope(tick_sync);
-    double ms_duration = 0;
-    double ms_duration_graphic = 0;
+    TimeType time_begin = GetTime();
     while (window.isOpen())
     {
-        TimeType start_time = GetTime();
-        sf::Event event;
-        while (window.pollEvent(event))
+        while (auto event = window.pollEvent())
         {
-            if (event.type == sf::Event::Closed)
+            if (event->is<sf::Event::Closed>())
             {
                 TaskSystem::StopWorkerThreadsNoWait();
                 window.close();
@@ -63,6 +65,8 @@ TDetachCoroutine render(GraphicContainer& graphic_container)
             }
         }
 
+        const TimeType time_rendering = event_avg.add(time_begin);
+
         window.clear();
         for (const sf::CircleShape& shape : graphic_container.GetRead())
         {
@@ -70,28 +74,33 @@ TDetachCoroutine render(GraphicContainer& graphic_container)
         }
         [&]() // Draw FPS
         {
-            sf::Text text;
-            text.setFont(font);
-            text.setString(std::to_string(ms_duration)+"/"+ std::to_string(ms_duration_graphic));
-            text.setCharacterSize(48);
+            sf::Text text(
+                font,
+                "event: " + std::to_string(event_avg.average())
+                + " render: " + std::to_string(render_avg.average()) 
+                + " wait: " + std::to_string(wait_avg.average()),
+                48);
             text.setFillColor(sf::Color::Red);
             window.draw(text);
         }();
         window.display();
-        window.setActive(false);
-        ms_duration_graphic = ToMiliseconds(GetTime() - start_time);
+        const bool success = window.setActive(false);
+        assert(success);
+		const TimeType time_waiting = render_avg.add(time_rendering);
         co_await tick_scope.WaitForNextFrame();
-        ms_duration = ToMiliseconds(GetTime() - start_time);
+		time_begin = wait_avg.add(time_waiting);
     }
 }
 
-TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx)
+TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx, TickSync& tick_sync)
 {
-    float x = std::abs(std::rand()) / resolution;
-    float y = std::abs(std::rand()) / resolution;
+    std::srand(idx);
+    float x = static_cast<float>(std::abs(std::rand()) % resolution);
+    float y = static_cast<float>(std::abs(std::rand()) % resolution);
 
-    float dx = (std::rand() % 1024) / 1024.0f;
-    float dy = (std::rand() % 1024) / 1024.0f;
+    constexpr float speed = 1.0f;
+    float dx = speed * ((std::rand() % 1024) - 512) / 512.0f;
+    float dy = speed * ((std::rand() % 1024) - 512) / 512.0f;
 
     TickScope tick_scope(tick_sync);
     while (g_running)
@@ -114,9 +123,8 @@ TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx)
         update(y, dy);
 
         {
-            //AccessScopeCo<GraphicContainer*> guard = co_await graphic_container;
             sf::CircleShape& shape = graphic_container.GetWrite()[idx];
-            shape.setPosition(x, y);
+            shape.setPosition(sf::Vector2f(x, y));
             shape.setRadius(10.0f);
         }
         co_await tick_scope.WaitForNextFrame();
@@ -132,17 +140,18 @@ int main()
     graphic_container.components_[0].resize(number_ants);
     graphic_container.components_[1].resize(number_ants);
 
+    TickSync tick_sync;
     tick_sync.Initialize([&](uint32)
         {
             graphic_container.OnFrameReady();
         });
 
-    TaskSystem::AsyncResume(render(graphic_container));
+    TaskSystem::AsyncResume(render(graphic_container, tick_sync));
 
     //SyncHolder<GraphicContainer*> graphic_holder(&graphic_container);
     for (uint32 idx = 0; idx < number_ants; idx++)
     {
-        TaskSystem::AsyncResume(ant(graphic_container, idx));
+        TaskSystem::AsyncResume(ant(graphic_container, idx, tick_sync));
     }
 
     TaskSystem::WaitForWorkerThreadsToJoin();
@@ -150,3 +159,131 @@ int main()
 
     return 0;
 }
+
+#endif // ANT_HILL
+
+#if ANT_HILL_STD
+
+#include <thread>
+#include <barrier>
+
+int main()
+{
+    using namespace ts;
+
+    GraphicContainer graphic_container;
+    graphic_container.components_[0].resize(number_ants);
+    graphic_container.components_[1].resize(number_ants);
+
+    sf::Font font("tuffy.ttf");
+
+    sf::RenderWindow window(sf::VideoMode(sf::Vector2u(resolution, resolution)), "Anthill");
+    window.display();
+
+    auto on_frame_ready = [&graphic_container]() noexcept
+    {
+        graphic_container.OnFrameReady();
+    };
+    std::barrier barrier(number_ants+1, on_frame_ready);
+
+    bool g_running = true;
+    auto ant = [&](uint32 idx) noexcept
+    {
+        std::srand(idx);
+        float x = static_cast<float>(std::abs(std::rand()) % resolution);
+        float y = static_cast<float>(std::abs(std::rand()) % resolution);
+
+        constexpr float speed = 1.0f;
+        float dx = speed * ((std::rand() % 1024) - 512) / 512.0f;
+        float dy = speed * ((std::rand() % 1024) - 512) / 512.0f;
+
+        while (g_running)
+        {
+            auto update = [](float& v, float& dv)
+            {
+                v += dv;
+                if (v < 0)
+                {
+                    v = 0;
+                    dv = -dv;
+                }
+                else if (v > resolution)
+                {
+                    v = resolution;
+                    dv = -dv;
+                }
+            };
+            update(x, dx);
+            update(y, dy);
+
+            {
+                sf::CircleShape& shape = graphic_container.GetWrite()[idx];
+                shape.setPosition(sf::Vector2f(x, y));
+                shape.setRadius(10.0f);
+            }
+            barrier.arrive_and_wait();
+        }
+    };
+
+	std::array<std::jthread, number_ants> ants_workers;
+    for (uint32 idx = 0; idx < number_ants; idx++)
+    {
+        ants_workers[idx] = std::jthread(ant, idx);
+	}
+
+    AvgTime event_avg, render_avg, wait_avg;
+    TimeType time_begin = GetTime();
+
+    while (window.isOpen())
+    {
+        while (auto event = window.pollEvent())
+        {
+            if (event->is<sf::Event::Closed>())
+            { 
+                g_running = false;
+                break;
+            }
+        }
+        if(!g_running)
+        {
+            barrier.arrive();
+            break;
+		}
+
+        const TimeType time_rendering = event_avg.add(time_begin);
+
+        window.clear();
+        for (const sf::CircleShape& shape : graphic_container.GetRead())
+        {
+            window.draw(shape);
+        }
+        [&]() // Draw FPS
+        {
+            sf::Text text(
+                font,
+                "event: " + std::to_string(event_avg.average())
+                + " render: " + std::to_string(render_avg.average()) 
+                + " wait: " + std::to_string(wait_avg.average()),
+                48);
+            text.setFillColor(sf::Color::Red);
+            window.draw(text);
+        }();
+        window.display();
+        const bool success = window.setActive(false);
+        assert(success);
+        const TimeType time_waiting = render_avg.add(time_rendering);
+        barrier.arrive_and_wait();
+        time_begin = wait_avg.add(time_waiting);
+    }
+
+    for(auto& worker : ants_workers)
+    {
+        worker.join();
+	}
+
+    window.close();
+
+    return 0;
+}
+
+#endif // ANT_HILL_STD

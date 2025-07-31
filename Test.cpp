@@ -8,7 +8,7 @@
 #include <iostream>
 #include <vector>
 
-#if 0
+#if TEST_MAIN
 
 #define TASK_TEST 1
 #define COROUTINE_TEST 1
@@ -300,6 +300,7 @@ int main()
 #if TICK_TEST
 	{
 		TickSync tick_sync;
+		tick_sync.Initialize({});
 		PerformTest([&](uint32)
 			{
 				TaskSystem::AsyncResume([](TickSync& tick_sync) -> TDetachCoroutine
@@ -352,4 +353,4 @@ int main()
 	return 0;
 }
 
-#endif
+#endif // TEST_MAIN
