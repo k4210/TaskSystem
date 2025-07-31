@@ -7,24 +7,38 @@ namespace ts
 {
 	struct AccessSynchronizer
 	{
+		struct State
+		{
+			Index last_task_ = kInvalidIndex;
+			uint8 tag_ = 0;
+		};
+
+		struct SyncResult
+		{
+			TRefCountPoolPtr<BaseTask> task_;
+			uint8 tag_ = 0;
+		};
+
 		//returns prerequire, to insert
-		TRefCountPoolPtr<BaseTask> Sync(BaseTask& task)
+		SyncResult Sync(BaseTask& task, const uint8 tag)
 		{
 			task.AddRef();
-			const Index prev_idx = last_task_.exchange(GetPoolIndex(task));
-			DEBUG_CODE(BaseTask* prev = (prev_idx != kInvalidIndex)
-				? &FromPoolIndex<BaseTask>(prev_idx) 
+			const State prev_state = state_.exchange(State{GetPoolIndex(task), tag});
+			DEBUG_CODE(BaseTask* prev = (prev_state.last_task_ != kInvalidIndex)
+				? &FromPoolIndex<BaseTask>(prev_state.last_task_) 
 				: nullptr;)
 			assert(prev != &task);
 			assert(!prev || (prev->GetRefCount() > 1) || prev->GetGate()->IsEmpty());
-			return TRefCountPoolPtr<BaseTask>(prev_idx, false);
+			return SyncResult{
+				TRefCountPoolPtr<BaseTask>(prev_state.last_task_, false),
+				prev_state.tag_};
 		}
 
-		bool SyncIfAvailible(BaseTask& task)
+		bool SyncIfAvailible(BaseTask& task, const uint8 tag)
 		{
-			Index expexted = kInvalidIndex;
 			task.AddRef();
-			const bool replaced = last_task_.compare_exchange_strong(expexted, GetPoolIndex(task));
+			State expexted;
+			const bool replaced = state_.compare_exchange_strong(expexted, State{GetPoolIndex(task), tag});
 			if (!replaced)
 			{
 				task.Release();
@@ -34,23 +48,30 @@ namespace ts
 
 		void Release(BaseTask& task)
 		{
-			Index expexted = GetPoolIndex(task);
-			const bool replaced = last_task_.compare_exchange_strong(expexted, kInvalidIndex);
-			assert(!replaced || task.GetRefCount() > 1);
-			if (replaced)
+			const Index expexted = GetPoolIndex(task);
+			State prev_state = state_.load(std::memory_order_relaxed);
+			do
 			{
-				task.Release();
-			}
+				if (prev_state.last_task_ != expexted)
+				{
+					return;
+				}
+			} while (!state_.compare_exchange_weak(prev_state, State{},
+				std::memory_order_release,
+				std::memory_order_relaxed));
+
+			assert(task.GetRefCount() > 1);
+			task.Release();
 		}
 
 		bool IsLocked() const
 		{
-			return last_task_.load(std::memory_order_relaxed) != kInvalidIndex;
+			return state_.load(std::memory_order_relaxed).last_task_ != kInvalidIndex;
 		}
 
 		DEBUG_CODE(thread_local static bool is_any_asset_locked_;)
 	private:
-		std::atomic<Index> last_task_ = kInvalidIndex;
+		std::atomic<State> state_;
 	};
 
 	template<typename T>
@@ -112,7 +133,8 @@ namespace ts
 			assert(AccessSynchronizer::is_any_asset_locked_);
 			DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
 			resource_->synchronizer_.Release(*local_current_task);
-			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting, nullptr, true);
+			constexpr bool bump_tag = true;
+			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
 			assert(unblocked <= 1);
 			assert(gate->IsEmpty());
 		}
@@ -142,7 +164,7 @@ namespace ts
 			assert(gate->IsEmpty());
 			const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, true);
 			assert(prev_state == ETaskState::PendingOrExecuting);
-			const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task);
+			const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task, local_current_task->GetTag());
 			return sync_with_current;
 		}
 		void await_suspend(std::coroutine_handle<> handle)
@@ -166,11 +188,12 @@ namespace ts
 			}
 
 			assert(resource_);
-			TRefCountPtr<BaseTask> prev_task_to_sync = resource_->synchronizer_.Sync(*task).ToRefCountPtr();
+			AccessSynchronizer::SyncResult sync_result = resource_->synchronizer_.Sync(*task, task->GetTag());
+			TRefCountPtr<BaseTask> prev_task_to_sync = sync_result.task_.ToRefCountPtr();
 			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
 			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
 			assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
-			Gate* pre_req[] = { to_sync };
+			Prerequire pre_req[] = { {to_sync, sync_result.tag_} };
 			TaskSystem::HandlePrerequires(*task, pre_req);
 		}
 		auto await_resume()

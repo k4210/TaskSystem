@@ -203,6 +203,25 @@ namespace ts::lock_free
 			return true;
 		}
 
+		bool Add(Node& node, const Gate required_open)
+		{
+			const Index idx = GetPoolIndex(node);
+			State new_state{ idx, required_open };
+			State old_state = state_.load(std::memory_order_relaxed);
+			do
+			{
+				if (old_state.gate != required_open)
+				{
+					return false;
+				}
+				new_state.tag = old_state.tag;
+				node.next_ = old_state.head;
+			} while (!state_.compare_exchange_weak(old_state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+			return true;
+		}
+
 		//Should be called once. Returns prev state
 		template<typename Func>
 		State ConsumeAll(const Gate new_gate, Func& func, const ETagAction tag_action = ETagAction::None)

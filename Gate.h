@@ -79,7 +79,18 @@ namespace ts
 			return depending_.Add(node, required_state, required_tag);
 		}
 
+		bool AddDependencyInner(DependencyNode& node, const ETaskState required_state)
+		{
+			return depending_.Add(node, required_state);
+		}
+
 	private:
 		lock_free::Collection<DependencyNode, ETaskState> depending_;
+	};
+
+	struct Prerequire
+	{
+		Gate* gate_ = nullptr;
+		uint8 tag_ = 0;
 	};
 }

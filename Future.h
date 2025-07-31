@@ -52,6 +52,11 @@ namespace ts
 			return &gate_;
 		}
 
+		uint8 GetTag() const
+		{
+			return gate_.GetInnerState().tag;
+		}
+
 		void OnRefCountZero();
 		static std::span<GenericFuture> GetPoolSpan();
 

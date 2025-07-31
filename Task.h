@@ -126,10 +126,11 @@ namespace ts
 			AccessSynchronizer& synchronizer = resource.Get()->synchronizer_;
 			TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
 
-			TRefCountPtr<BaseTask> prev_task_to_sync = synchronizer.Sync(*task).ToRefCountPtr();
+			AccessSynchronizer::SyncResult sync_result = synchronizer.Sync(*task, task->GetTag());
+			TRefCountPtr<BaseTask> prev_task_to_sync = sync_result.task_.ToRefCountPtr();
 			Gate* to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
-			Gate* pre_req[] = { to_sync };
 
+			Prerequire pre_req[] = { {to_sync, sync_result.tag_} };
 			TaskSystem::HandlePrerequires(*task, pre_req);
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
@@ -146,6 +147,7 @@ namespace ts
 		static TRefCountPtr<BaseTask> CreateTask(std::move_only_function<void(BaseTask&)> function,
 			ETaskFlags flags = ETaskFlags::None LOCATION_PARAM);
 
+		static void HandlePrerequires(BaseTask& task, std::span<Prerequire> prerequiers = {});
 		static void HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers = {});
 
 		static TRefCountPtr<GenericFuture> MakeGenericFuture();
