@@ -148,6 +148,13 @@ namespace ts::lock_free
 		std::atomic<State> state_;
 	};
 
+	enum class ETagAction
+	{
+		None, 
+		Increment,
+		Reset
+	};
+
 	template<typename Node, typename Gate>
 	struct Collection
 	{
@@ -155,6 +162,7 @@ namespace ts::lock_free
 		{
 			Index head = kInvalidIndex;
 			Gate gate = {};
+			uint8 tag = 0;
 
 			bool operator== (const State&) const = default;
 		};
@@ -163,99 +171,43 @@ namespace ts::lock_free
 			: state_(State{ .gate = gate })
 		{}
 
-		Gate GetGateState() const
-		{
-			return GetState().gate;
-		}
-
 		bool IsEmpty() const
 		{
 			return GetState().head == kInvalidIndex;
 		}
 
 		// Returns old gate
-		Gate SetFastOnEmpty(const Gate new_gate)
+		State SetOnEmpty(const Gate new_gate, const ETagAction tag_action = ETagAction::None)
 		{
-			State new_state{ kInvalidIndex, new_gate };
-			const State old_state = state_.exchange(new_state, std::memory_order_relaxed);
+			const State old_state = ResetInner(new_gate, tag_action);
 			assert(old_state.head == kInvalidIndex);
-			return old_state.gate;
+			return old_state;
 		}
 
 		//return if the element was added
-		bool Add(Node& node, const Gate required_open)
+		bool Add(Node& node, const Gate required_open, const uint8 required_tag)
 		{
 			const Index idx = GetPoolIndex(node);
-			const State new_state{ .head = idx, .gate = required_open };
-			State state = state_.load(std::memory_order_relaxed);
+			const State new_state{ idx, required_open, required_tag };
+			State old_state = state_.load(std::memory_order_relaxed);
 			do
 			{
-				if (state.gate != required_open)
+				if (old_state.gate != required_open || old_state.tag != required_tag)
 				{
 					return false;
 				}
-				node.next_ = state.head;
-			} while (!state_.compare_exchange_weak(state, new_state,
+				node.next_ = old_state.head;
+			} while (!state_.compare_exchange_weak(old_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 			return true;
 		}
 
-		// Returns old gate
-		Gate AddForceOpen(Node& node, const Gate open)
-		{
-			const Index idx = GetPoolIndex(node);
-			const State new_state{ .head = idx, .gate = open };
-			State state = state_.load(std::memory_order_relaxed);
-			do
-			{
-				node.next_ = state.head;
-			} while (!state_.compare_exchange_weak(state, new_state,
-				std::memory_order_release,
-				std::memory_order_relaxed));
-			return state.gate;
-		}
-
-		//returns prev state
-		Gate ExchangeState(Gate new_gate)
-		{
-			State state = state_.load(std::memory_order_relaxed);
-			State new_state{ state.head, new_gate };
-			do
-			{
-				if (state.gate == new_gate)
-				{
-					break;
-				}
-				new_state.head = state.head;
-			} while (!state_.compare_exchange_weak(state, new_state,
-				std::memory_order_release,
-				std::memory_order_relaxed));
-			return state.gate;
-		}
-
-		bool ChangeIfEmpty(Gate new_gate)
-		{
-			const State new_state{ kInvalidIndex, new_gate };
-			State state = state_.load(std::memory_order_relaxed);
-			do
-			{
-				if (state.head != kInvalidIndex)
-				{
-					return false;
-				}
-				assert(state.gate != new_gate);
-			} while (!state_.compare_exchange_weak(state, new_state,
-				std::memory_order_release,
-				std::memory_order_relaxed));
-			return true;
-		}
-
-		//Should be called once. Returns prev gate state
+		//Should be called once. Returns prev state
 		template<typename Func>
-		Gate ConsumeAll(const Gate new_state, Func& func)
+		State ConsumeAll(const Gate new_gate, Func& func, const ETagAction tag_action = ETagAction::None)
 		{
-			const State old_state = state_.exchange(State{ .gate = new_state });
+			const State old_state = ResetInner(new_gate, tag_action);
 
 			Index head = old_state.head;
 			while (head != kInvalidIndex)
@@ -264,7 +216,7 @@ namespace ts::lock_free
 				head = node.next_;
 				func(node); // node.next_ should be handled here
 			}
-			return old_state.gate;
+			return old_state;
 		}
 
 		State GetState() const
@@ -274,6 +226,26 @@ namespace ts::lock_free
 			);
 		}
 	private:
+		State ResetInner(const Gate new_gate, const ETagAction tag_action)
+		{
+			State new_state{ .gate = new_gate };
+			State old_state = state_.load(std::memory_order_relaxed);
+			if (tag_action == ETagAction::Reset)
+			{
+				old_state = state_.exchange(new_state, std::memory_order_relaxed);
+			}
+			else
+			{
+				do
+				{
+					new_state.tag = (tag_action == ETagAction::Increment)
+						? (old_state.tag + 1) : old_state.tag;
+				} while (!state_.compare_exchange_weak(old_state, new_state,
+					std::memory_order_release,
+					std::memory_order_relaxed));
+			}
+			return old_state;
+		}
 
 		std::atomic<State> state_;
 	};

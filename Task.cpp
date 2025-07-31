@@ -205,10 +205,9 @@ namespace ts
 		return !!task;
 	}
 
-	uint32 Gate::Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency)
+	uint32 Gate::Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency, bool inc_tag)
 	{
-		assert(GetState() == ETaskState::PendingOrExecuting
-			|| GetState() == ETaskState::PendingOrExecuting_NonBLocking);
+		assert(GetState() == ETaskState::PendingOrExecuting);
 
 		DependencyNode* head = nullptr;
 		DependencyNode* tail = nullptr;
@@ -224,9 +223,9 @@ namespace ts
 				chain_len++;
 			};
 
-		ETaskState old_state = depending_.ConsumeAll(new_state, handle_dependency);
-		assert(old_state == ETaskState::PendingOrExecuting
-			|| old_state == ETaskState::PendingOrExecuting_NonBLocking);
+		const ETaskState old_state = depending_.ConsumeAll(new_state, handle_dependency, 
+			inc_tag ? lock_free::ETagAction::Increment : lock_free::ETagAction::None).gate;
+		assert(old_state == ETaskState::PendingOrExecuting);
 
 		if (head)
 		{

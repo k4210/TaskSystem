@@ -112,7 +112,7 @@ namespace ts
 			assert(AccessSynchronizer::is_any_asset_locked_);
 			DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
 			resource_->synchronizer_.Release(*local_current_task);
-			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting_NonBLocking);
+			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting, nullptr, true);
 			assert(unblocked <= 1);
 			assert(gate->IsEmpty());
 		}
@@ -140,13 +140,9 @@ namespace ts
 			assert(local_current_task);
 			Gate* gate = local_current_task->GetGate();
 			assert(gate->IsEmpty());
-			const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting);
+			const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, true);
+			assert(prev_state == ETaskState::PendingOrExecuting);
 			const bool sync_with_current = resource_->synchronizer_.SyncIfAvailible(*local_current_task);
-			assert(prev_state == ETaskState::PendingOrExecuting_NonBLocking || prev_state == ETaskState::PendingOrExecuting);
-			if (!sync_with_current && (prev_state == ETaskState::PendingOrExecuting_NonBLocking))
-			{
-				gate->Unblock(ETaskState::PendingOrExecuting_NonBLocking);
-			}
 			return sync_with_current;
 		}
 		void await_suspend(std::coroutine_handle<> handle)

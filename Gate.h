@@ -14,7 +14,6 @@ namespace ts
 		Nonexistent_Pooled,
 #endif
 		PendingOrExecuting,
-		PendingOrExecuting_NonBLocking,
 		Done,
 		DoneUnconsumedResult,
 	};
@@ -52,7 +51,7 @@ namespace ts
 
 		ETaskState GetState() const
 		{
-			return depending_.GetGateState();
+			return depending_.GetState().gate;
 		}
 
 		auto GetInnerState() const
@@ -66,17 +65,18 @@ namespace ts
 		}
 
 		// returns previous state
-		ETaskState ResetStateOnEmpty(ETaskState new_state)
+		ETaskState ResetStateOnEmpty(ETaskState new_state, bool inc_tag = false)
 		{
-			return depending_.SetFastOnEmpty(new_state);
+			return depending_.SetOnEmpty(new_state, 
+				inc_tag ? lock_free::ETagAction::Increment : lock_free::ETagAction::None).gate;
 		}
 
 		// return number of unblocked tasks
-		uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
+		uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr, bool inc_tag = false);
 
-		bool AddDependencyInner(DependencyNode& node, ETaskState required_state)
+		bool AddDependencyInner(DependencyNode& node, const ETaskState required_state, const uint8 required_tag)
 		{
-			return depending_.Add(node, required_state);
+			return depending_.Add(node, required_state, required_tag);
 		}
 
 	private:
