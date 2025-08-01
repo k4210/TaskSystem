@@ -8,8 +8,8 @@
 
 #define TASK_RETRIGGER 0
 
-#define TEST_MAIN 0
-#define ANT_HILL 1
+#define TEST_MAIN 1
+#define ANT_HILL 0
 #define ANT_HILL_STD 0
 
 #ifdef NDEBUG
@@ -24,6 +24,7 @@ namespace ts
 	constexpr std::size_t kTaskPoolSize = 1024 * 8;
 	constexpr std::size_t kDepNodePoolSize = 1024 * 8;
 	constexpr std::size_t kFuturePoolSize = 2048;
+	constexpr std::size_t kSynchronizerNodePoolSize = 1024 * 4;
 
 	constexpr std::size_t InitPoolSizePerThread(std::size_t pool_size)
 	{

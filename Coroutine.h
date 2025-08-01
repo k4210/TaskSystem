@@ -159,7 +159,7 @@ namespace ts
 		template<SyncPtr TPtr>
 		auto await_transform(SyncHolder<TPtr> resource)
 		{
-			return AccessSynchronizerTaskAwaiter<TPtr>( std::forward<SyncHolder<TPtr>>(resource) );
+			return AccessSynchronizerExclusiveTaskAwaiter<TPtr>( std::forward<SyncHolder<TPtr>>(resource) );
 		}
 	};
 

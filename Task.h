@@ -113,7 +113,7 @@ namespace ts
 					if (ptr_)
 					{
 						assert(task_);
-						ptr_->synchronizer_.Release(*task_); //This works because Task::Execute cleans functor at the end
+						ptr_->synchronizer_.ReleaseExclusive(*task_); //This works because Task::Execute cleans functor at the end
 					}
 					else
 					{
@@ -126,13 +126,9 @@ namespace ts
 			AccessSynchronizer& synchronizer = resource.Get()->synchronizer_;
 			TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
 
-			const AccessSynchronizer::SyncResult sync_result = synchronizer.Sync(*task, task->GetTag());
-			TRefCountPtr<BaseTask> prev_task_to_sync = sync_result.task_.ToRefCountPtr();
-			Gate* const to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
+			const SyncMultiResult sync_result = synchronizer.SyncExclusive(*task, task->GetTag());
+			SyncMultiResult::HandleOnTask(sync_result, *task);
 
-			Gate* pre_req[] = { to_sync };
-			uint8 pre_req_tags[] = { sync_result.tag_ };
-			TaskSystem::HandlePrerequires(*task, pre_req, pre_req_tags);
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
 
@@ -143,12 +139,12 @@ namespace ts
 			return MakeGenericFuture().Cast<Future<T>>();
 		}
 
+		static void HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers = {}, std::span<uint8> prerequiers_tags = {});
+
 #pragma region private
 	private:
 		static TRefCountPtr<BaseTask> CreateTask(std::move_only_function<void(BaseTask&)> function,
 			ETaskFlags flags = ETaskFlags::None LOCATION_PARAM);
-
-		static void HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers = {}, std::span<uint8> prerequiers_tags = {});
 
 		static TRefCountPtr<GenericFuture> MakeGenericFuture();
 
@@ -156,7 +152,7 @@ namespace ts
 
 		friend class BaseTask;
 		template<typename T> friend class GuardedResource;
-		template<SyncPtr TPtr> friend struct AccessSynchronizerTaskAwaiter;
+		template<SyncPtr TPtr> friend struct AccessSynchronizerExclusiveTaskAwaiter;
 #pragma endregion
 	};
 
