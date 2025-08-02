@@ -81,7 +81,7 @@ namespace ts
 					new_state.released_shared_tasks_ = 0;
 					new_state.tag_ = prev_state.tag_ + 1;
 				}
-				else if (prev_state.last_task_tag_ == kInvalidIndex) // return empty collection
+				else if (prev_state.last_task_ == kInvalidIndex) // return empty collection
 				{
 					result = kInvalidIndex;
 					result_size = 0;	
@@ -94,6 +94,7 @@ namespace ts
 					}
 					CollectionNode& node = FromPoolIndex<CollectionNode>(allocated_node);
 					assert(node.next_ == kInvalidIndex);
+					node.task_.ResetNoRelease();
 					node.task_ = TRefCountPoolPtr<BaseTask>(prev_state.last_task_, false);
 					node.task_tag_ = prev_state.last_task_tag_;
 					result = allocated_node;
@@ -109,6 +110,7 @@ namespace ts
 				CollectionNode::Release(allocated_node);
 			}
 
+			// release previous (replaced) exclusive task, that was not returned
 			if (prev_state.shared_collection_size_ && (prev_state.last_task_tag_ != kInvalidIndex))
 			{
 				assert(prev_state.last_task_tag_ != new_state.last_task_tag_);

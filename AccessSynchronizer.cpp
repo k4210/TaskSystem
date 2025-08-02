@@ -50,7 +50,7 @@ namespace ts
 			len);
 	}
 
-	void SyncMultiResult::HandleOnTask(SyncMultiResult result, BaseTask& task)
+	void SyncMultiResult::HandleOnTask(const SyncMultiResult result, BaseTask& task)
 	{
 		if (!result.len)
 		{
@@ -72,7 +72,7 @@ namespace ts
 			pre_req[idx] = node.task_->GetGate();
 			assert(pre_req[idx] && pre_req[idx]->GetState() != ETaskState::Nonexistent_Pooled);
 			tags[idx] = node.task_tag_;
-			assert((node.next_ != kInvalidIndex) == (idx == result.len - 1));
+			assert((node.next_ == kInvalidIndex) == (idx == result.len - 1));
 			current = node.next_;
 		}
 
