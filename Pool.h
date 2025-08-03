@@ -65,6 +65,8 @@ namespace ts
 	>
 	struct Pool
 	{
+		using IndexType = decltype(Node::next_);
+
 		Pool()
 		{
 #if 1
@@ -72,7 +74,7 @@ namespace ts
 			{
 				all_[Idx - 1].next_ = Idx;
 			}
-			Index first_remaining = 0;
+			IndexType first_remaining{ 0 };
 #else
 			std::vector<Index> initial_order;
 			initial_order.reserve(Size);
@@ -177,7 +179,7 @@ namespace ts
 			POOL_STATS(used_counter_ -= chain_len;)
 			if constexpr (requires { new_head.OnReturnToPool(); })
 			{
-				for (Index iter = GetPoolIndex(new_head);
+				for (IndexType iter{ GetPoolIndex(new_head) };
 					iter != kInvalidIndex;
 					iter = FromPoolIndex<Node>(iter).next_)
 				{

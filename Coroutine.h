@@ -156,10 +156,17 @@ namespace ts
 			return CoroutineAwaiter{ std::forward<TUniqueHandle<OtherPromise>>(in_coroutine) };
 		}
 
-		template<SyncPtr TPtr>
-		auto await_transform(SyncHolder<TPtr> resource)
+		template<SyncT TValue>
+		auto await_transform(SyncHolder<TValue> resource)
 		{
-			return AccessSynchronizerExclusiveTaskAwaiter<TPtr>( std::forward<SyncHolder<TPtr>>(resource) );
+			return AccessSynchronizerExclusiveTaskAwaiter<TValue>( std::forward<SyncHolder<TValue>>(resource) );
+		}
+
+		
+		template<SyncT TValue>
+		auto await_transform(SharedSyncHolder<TValue> resource)
+		{
+			return AccessSynchronizerSharedTaskAwaiter<TValue>( std::forward<SharedSyncHolder<TValue>>(resource) );
 		}
 	};
 

@@ -52,9 +52,9 @@ namespace ts
 			return &gate_;
 		}
 
-		uint8 GetTag() const
+		GateTag GetTag() const
 		{
-			return gate_.GetInnerState().tag;
+			return GateTag::FromRawValue( gate_.GetInnerState().tag );
 		}
 
 		void OnRefCountZero();

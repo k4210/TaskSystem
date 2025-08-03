@@ -18,6 +18,10 @@ namespace ts
 		DoneUnconsumedResult,
 	};
 
+	struct DependencyNode;
+
+	using DependencyNodeIndex = BaseIndex<DependencyNode>;
+
 	struct DependencyNode
 	{
 		static std::span<DependencyNode> GetPoolSpan();
@@ -27,9 +31,9 @@ namespace ts
 			assert(!task_);
 		}
 #endif
-		TRefCountPoolPtr<BaseTask> task_;
+		TRefCountPoolPtr<BaseTask, Index> task_;
 
-		Index next_ = kInvalidIndex;
+		DependencyNodeIndex next_;
 	};
 
 	struct Gate
@@ -87,4 +91,6 @@ namespace ts
 	private:
 		lock_free::Collection<DependencyNode, ETaskState> depending_;
 	};
+
+	using GateTag = BaseTag<Gate, uint8>;
 }

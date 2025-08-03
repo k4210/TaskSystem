@@ -65,8 +65,8 @@ namespace ts
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
 
-		template<class F, SyncPtr TPtr>
-		static auto InitializeTaskOn(F&& functor, SyncHolder<TPtr> resource, ETaskFlags flags = ETaskFlags::None
+		template<class F, SyncT TValue>
+		static auto InitializeTaskOn(F&& functor, SyncHolder<TValue> resource, ETaskFlags flags = ETaskFlags::None
 			LOCATION_PARAM)
 		{
 			using ResultType = decltype(functor(AccessScope(resource.Get())));
@@ -76,10 +76,10 @@ namespace ts
 			struct LambdaObj
 			{
 				F function_;
-				TPtr ptr_;
+				TValue* ptr_;
 				BaseTask* task_ = nullptr;
 
-				LambdaObj(F&& function, TPtr ptr) :
+				LambdaObj(F&& function, TValue* ptr) :
 					function_(std::forward<F>(function)), ptr_(std::move(ptr))
 				{}
 
@@ -126,8 +126,8 @@ namespace ts
 			AccessSynchronizer& synchronizer = resource.Get()->synchronizer_;
 			TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
 
-			const SyncMultiResult sync_result = synchronizer.SyncExclusive(*task, task->GetTag());
-			SyncMultiResult::HandleOnTask(sync_result, *task);
+			const AccessSynchronizer::SyncMultiResult sync_result = synchronizer.SyncExclusive(*task, task->GetTag());
+			AccessSynchronizer::SyncMultiResult::HandleOnTask(sync_result, *task);
 
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
@@ -152,7 +152,8 @@ namespace ts
 
 		friend class BaseTask;
 		template<typename T> friend class GuardedResource;
-		template<SyncPtr TPtr> friend struct AccessSynchronizerExclusiveTaskAwaiter;
+		template<SyncT TValue> friend struct AccessSynchronizerExclusiveTaskAwaiter;
+		template<SyncT TValue> friend struct AccessSynchronizerSharedTaskAwaiter;
 #pragma endregion
 	};
 

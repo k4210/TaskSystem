@@ -58,14 +58,51 @@ constexpr EnumType enum_or(EnumType a, EnumType b)
 
 namespace ts
 {
+	template<class Type>
+	class BaseIndex
+	{
+		Index value = kInvalidIndex;
+	public:
+		BaseIndex() = default;
+		BaseIndex(const BaseIndex&) = default;
+		BaseIndex(BaseIndex&&) = default;
+		explicit BaseIndex(const Index raw_value)
+			: value(raw_value)
+		{}
+		BaseIndex& operator= (const BaseIndex&) = default;
+		BaseIndex& operator= (BaseIndex&&) = default;
+		BaseIndex& operator= (const Index raw_value)
+		{
+			value = raw_value;
+			return *this;
+		}
+		void Reset() { value = kInvalidIndex; }
+
+		Index RawValue() const { return value; }
+		bool IsValid() const { return value != kInvalidIndex; }
+
+		bool operator == (const BaseIndex& other) const = default;
+		bool operator != (const BaseIndex& other) const = default;
+
+		bool operator == (const Index& other) const 
+		{
+			return value == other;
+		}
+		bool operator != (const Index& other) const 
+		{
+			return value != other;
+		}
+	};
+
 	template<typename Node>
-	Index GetPoolIndex(const Node& node)
+	auto GetPoolIndex(const Node& node)
 	{
 		const std::span<Node> nodes = Node::GetPoolSpan();
 		const Node* first = nodes.data();
 		const Index idx = static_cast<Index>(std::distance(first, &node));
 		assert(idx < nodes.size());
-		return idx;
+		using IndexType = decltype(Node::next_);
+		return IndexType{idx};
 	}
 
 	template<typename Node>
@@ -75,4 +112,37 @@ namespace ts
 		assert(index < nodes.size());
 		return nodes[index];
 	}
+
+	template<typename Node>
+	Node& FromPoolIndex(const BaseIndex<Node> index)
+	{
+		assert(index.IsValid());
+		std::span<Node> nodes = Node::GetPoolSpan();
+		assert(index.RawValue() < nodes.size());
+		return nodes[index.RawValue()];
+	}
+
+	template<class Type, typename DataType>
+	class BaseTag
+	{
+		DataType value = 0;
+	public:
+		static BaseTag FromRawValue(const DataType raw_value)
+		{
+			BaseTag result;
+			result.value = raw_value;
+			return result;
+		}
+
+		void Bump() { value++; }
+		void Reset() { value = 0; }
+
+		BaseTag Next() const { return FromRawValue(value + 1); }
+		DataType RawValue() const { return value; }
+
+		bool operator == (const BaseTag& other) const = default;
+		bool operator != (const BaseTag& other) const = default;
+	};
+	
+
 }

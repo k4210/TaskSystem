@@ -14,9 +14,11 @@ namespace ts::lock_free
 	template<typename Node>
 	struct Stack
 	{
+		using IndexType = decltype(Node::next_);
+
 		void Push(Node& node)
 		{
-			const Index idx = GetPoolIndex(node);
+			const IndexType idx{ GetPoolIndex(node) };
 			State new_state{ .head = idx };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -32,8 +34,8 @@ namespace ts::lock_free
 		{
 			assert([&]() -> bool
 				{
-					const Index wanted = GetPoolIndex(chain_tail);
-					Index local = GetPoolIndex(new_head);
+					const IndexType wanted{ GetPoolIndex(chain_tail) };
+					IndexType local{ GetPoolIndex(new_head) };
 					for (int32 counter = 0; counter < (8 * 1024); counter++)
 					{
 						if (local == wanted)
@@ -48,7 +50,7 @@ namespace ts::lock_free
 					}
 					return false;
 				}());
-			const Index idx = GetPoolIndex(new_head);
+			const IndexType idx{ GetPoolIndex(new_head) };
 			State new_state{ .head = idx };
 			State state = state_.load(std::memory_order_relaxed);
 			do
@@ -66,7 +68,7 @@ namespace ts::lock_free
 			State new_state;
 			do
 			{
-				if (kInvalidIndex == state.head)
+				if (state.head == kInvalidIndex)
 				{
 					return nullptr;
 				}
@@ -82,7 +84,7 @@ namespace ts::lock_free
 		}
 
 		//return previous head
-		Index Reset(Index new_head = kInvalidIndex)
+		IndexType Reset(IndexType new_head = kInvalidIndex)
 		{
 			State state = state_.load(std::memory_order_relaxed);
 			const State new_state{ new_head, 0 };
@@ -95,7 +97,7 @@ namespace ts::lock_free
 	private:
 		struct State
 		{
-			Index head = kInvalidIndex;
+			IndexType head{ kInvalidIndex };
 			Tag tag = 0;
 		};
 
@@ -158,9 +160,10 @@ namespace ts::lock_free
 	template<typename Node, typename Gate>
 	struct Collection
 	{
+		using IndexType = decltype(Node::next_);
 		struct State
 		{
-			Index head = kInvalidIndex;
+			IndexType head{ kInvalidIndex };
 			Gate gate = {};
 			uint8 tag = 0;
 
@@ -187,7 +190,7 @@ namespace ts::lock_free
 		//return if the element was added
 		bool Add(Node& node, const Gate required_open, const uint8 required_tag)
 		{
-			const Index idx = GetPoolIndex(node);
+			const IndexType idx{ GetPoolIndex(node) };
 			const State new_state{ idx, required_open, required_tag };
 			State old_state = state_.load(std::memory_order_relaxed);
 			do
@@ -205,7 +208,7 @@ namespace ts::lock_free
 
 		bool Add(Node& node, const Gate required_open)
 		{
-			const Index idx = GetPoolIndex(node);
+			const IndexType idx{ GetPoolIndex(node) };
 			State new_state{ idx, required_open };
 			State old_state = state_.load(std::memory_order_relaxed);
 			do
@@ -228,7 +231,7 @@ namespace ts::lock_free
 		{
 			const State old_state = ResetInner(new_gate, tag_action);
 
-			Index head = old_state.head;
+			IndexType head = old_state.head;
 			while (head != kInvalidIndex)
 			{
 				Node& node = FromPoolIndex<Node>(head);

@@ -15,7 +15,7 @@
 #ifdef NDEBUG
 #define DO_POOL_STATS 0
 #else
-#define DO_POOL_STATS 0
+#define DO_POOL_STATS 1
 #endif // _DEBUG
 
 namespace ts

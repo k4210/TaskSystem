@@ -64,7 +64,20 @@ public:
 		int32 task_idx = 0;
 	};
 	std::vector<DebugData> debug_data_;
+
+	std::atomic_uint32_t counter_;
+
 	AccessSynchronizer synchronizer_;
+
+	void MutableFuntion()
+	{
+		counter_.fetch_sub(1, std::memory_order_relaxed);
+	}
+
+	void ConstFunction() const
+	{
+		const_cast<SampleAsset*>(this)->counter_.fetch_add(1, std::memory_order_relaxed);
+	}
 
 	void SaveState()
 	{
@@ -79,6 +92,8 @@ std::atomic<uint64> global_counter = 0;
 
 int main()
 {
+	std::cout << "sizeof(AccessSynchronizer::State) : " << sizeof(AccessSynchronizer::State) << std::endl;
+
 	TaskSystem::StartWorkerThreads();
 	std::this_thread::sleep_for(4ms); // let worker threads start
 
@@ -251,13 +266,12 @@ int main()
 	{
 		TRefCountPtr<SampleAsset> asset_ptr(new SampleAsset{});
 		TRefCountPtr<SampleAsset> asset2_ptr(new SampleAsset{});
-		using AssetHolder = SyncHolder<SampleAsset*>;
-		AssetHolder asset(asset_ptr.Get());
-		AssetHolder asset2(asset2_ptr.Get());
+		SyncHolder<SampleAsset> asset(asset_ptr.Get());
+		SyncHolder<SampleAsset> asset2(asset2_ptr.Get());
 		
 		PerformTest([&](uint32)
 			{
-				TaskSystem::InitializeTaskOn([&](AccessScope<SampleAsset*> sample)
+				TaskSystem::InitializeTaskOn([&](AccessScope<SampleAsset> sample)
 					{
 						assert(!sample->locked_);
 						sample->locked_ = true;
@@ -273,16 +287,46 @@ int main()
 			assert(static_cast<uint32>(asset_ptr->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
 		PerformTest([&](uint32)
 			{
-				TaskSystem::AsyncResume([](AssetHolder in_asset, AssetHolder in_asset2) -> TDetachCoroutine
+				TaskSystem::AsyncResume([](SyncHolder<SampleAsset> in_asset, SyncHolder<SampleAsset> in_asset2) -> TDetachCoroutine
 					{
 						{
-							AccessScopeCo<SampleAsset*> guard = co_await in_asset;
+							AccessScopeCo<SampleAsset> guard = co_await in_asset;
 							guard->SaveState();
 						}
 						{
-							AccessScopeCo<SampleAsset*> guard2 = co_await in_asset2;
+							AccessScopeCo<SampleAsset> guard2 = co_await in_asset2;
 							guard2->SaveState();
 						}
+					}(asset, asset2));
+			}, TestDetails
+			{
+				.inner_num = 512,
+				.name = "Coroutines guarded res",
+				.included_cleanup = WaitForTasks,
+				.excluded_cleanup = [&]()
+				{
+					asset_ptr->debug_data_.clear();
+				 	asset2_ptr->debug_data_.clear();
+				}
+			});
+
+			PerformTest([&](uint32)
+			{
+				TaskSystem::AsyncResume([](SyncHolder<SampleAsset> in_asset, SyncHolder<SampleAsset> in_asset2) -> TDetachCoroutine
+					{
+						{
+							AccessScopeCo<SampleAsset> guard = co_await in_asset;
+							guard->MutableFuntion();
+						}
+						{
+							AccessScopeCo<SampleAsset> guard2 = co_await in_asset2;
+							guard2->MutableFuntion();
+						}
+						{
+							SharedAccessScopeCo<SampleAsset> guard3 = co_await in_asset.Shared();
+							guard3->ConstFunction();
+						}
+
 					}(asset, asset2));
 			}, TestDetails
 			{

@@ -76,8 +76,7 @@ namespace ts
 
 	void GenericFuture::OnRefCountZero()
 	{
-		DEBUG_CODE(auto inner_state = gate_.GetInnerState();)
-			const ETaskState state = gate_.GetState();
+		const ETaskState state = gate_.GetState();
 		assert(state != ETaskState::Nonexistent_Pooled);
 		assert(gate_.IsEmpty());
 		if (state == ETaskState::DoneUnconsumedResult)

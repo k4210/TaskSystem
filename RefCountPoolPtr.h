@@ -6,7 +6,7 @@
 namespace ts
 {
 	//Node must be both ref counted and pooled
-	template<typename Node>
+	template<typename Node, typename IndexType = decltype(Node::next_)>
 	class TRefCountPoolPtr
 	{
 	public:
@@ -28,7 +28,7 @@ namespace ts
 			}
 		}
 
-		TRefCountPoolPtr(Index index_, bool add_ref = true)
+		TRefCountPoolPtr(IndexType index_, bool add_ref = true)
 			: index_(index_)
 		{
 			if (IsValid() && add_ref)
@@ -132,7 +132,7 @@ namespace ts
 
 		friend void swap(TRefCountPoolPtr& A, TRefCountPoolPtr& B)
 		{
-			Index AIdx = A.index_;
+			IndexType AIdx = A.index_;
 			A.index_ = B.index_;
 			B.index_ = AIdx;
 		}
@@ -180,7 +180,7 @@ namespace ts
 		}
 
 	private:
-		Index index_ = kInvalidIndex;
+		IndexType index_;
 	};
 
 }
