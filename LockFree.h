@@ -14,7 +14,7 @@ namespace ts::lock_free
 	template<typename Node>
 	struct Stack
 	{
-		using IndexType = decltype(Node::next_);
+		using IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>;
 
 		void Push(Node& node)
 		{
@@ -24,7 +24,7 @@ namespace ts::lock_free
 			do
 			{
 				new_state.tag = state.tag + 1;
-				node.next_ = state.head;
+				node.NextRef() = state.head;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
@@ -46,7 +46,7 @@ namespace ts::lock_free
 						{
 							break;
 						}
-						local = FromPoolIndex<Node>(local).next_;
+						local = FromPoolIndex<Node>(local).NextRef();
 					}
 					return false;
 				}());
@@ -56,7 +56,7 @@ namespace ts::lock_free
 			do
 			{
 				new_state.tag = state.tag + 1;
-				chain_tail.next_ = state.head;
+				chain_tail.NextRef() = state.head;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
@@ -72,14 +72,14 @@ namespace ts::lock_free
 				{
 					return nullptr;
 				}
-				new_state.head = FromPoolIndex<Node>(state.head).next_;
+				new_state.head = FromPoolIndex<Node>(state.head).NextRef();
 				new_state.tag = state.tag + 1;
 			} while (!state_.compare_exchange_weak(state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
 			Node& node = FromPoolIndex<Node>(state.head);
-			node.next_ = kInvalidIndex;
+			node.NextRef() = kInvalidIndex;
 			return &node;
 		}
 
@@ -160,7 +160,7 @@ namespace ts::lock_free
 	template<typename Node, typename Gate>
 	struct Collection
 	{
-		using IndexType = decltype(Node::next_);
+		using IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>;
 		struct State
 		{
 			IndexType head{ kInvalidIndex };
@@ -199,7 +199,7 @@ namespace ts::lock_free
 				{
 					return false;
 				}
-				node.next_ = old_state.head;
+				node.NextRef() = old_state.head;
 			} while (!state_.compare_exchange_weak(old_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
@@ -218,7 +218,7 @@ namespace ts::lock_free
 					return false;
 				}
 				new_state.tag = old_state.tag;
-				node.next_ = old_state.head;
+				node.NextRef() = old_state.head;
 			} while (!state_.compare_exchange_weak(old_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
@@ -235,8 +235,8 @@ namespace ts::lock_free
 			while (head != kInvalidIndex)
 			{
 				Node& node = FromPoolIndex<Node>(head);
-				head = node.next_;
-				func(node); // node.next_ should be handled here
+				head = node.NextRef();
+				func(node); // node.NextRef() should be handled here
 			}
 			return old_state;
 		}

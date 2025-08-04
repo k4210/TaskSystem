@@ -25,7 +25,7 @@ namespace ts
 		void Push(Node& node)
 		{
 			const Index idx = GetPoolIndex(node);
-			node.next_ = head_;
+			node.NextRef() = head_;
 			head_ = idx;
 			size_++;
 		}
@@ -33,7 +33,7 @@ namespace ts
 		void PushChain(Node& new_head, Node& chain_tail, uint16 len)
 		{
 			const Index idx = GetPoolIndex(new_head);
-			chain_tail.next_ = head_;
+			chain_tail.NextRef() = head_;
 			head_ = idx;
 			size_ += len;
 		}
@@ -45,8 +45,8 @@ namespace ts
 				return nullptr;
 			}
 			Node& node = FromPoolIndex<Node>(head_);
-			head_ = node.next_;
-			node.next_ = kInvalidIndex;
+			head_ = node.NextRef();
+			node.NextRef() = kInvalidIndex;
 			size_--;
 			return &node;
 		}
@@ -65,32 +65,32 @@ namespace ts
 	>
 	struct Pool
 	{
-		using IndexType = decltype(Node::next_);
+		using IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>;
 
 		Pool()
 		{
 #if 1
-			for (Index Idx = 1; Idx < Size; Idx++)
-			{
-				all_[Idx - 1].next_ = Idx;
-			}
-			IndexType first_remaining{ 0 };
+            for (Index Idx = 1; Idx < Size; Idx++)
+            {
+                all_[Idx - 1].NextRef() = Idx;
+            }
+            IndexType first_remaining{ 0 };
 #else
-			std::vector<Index> initial_order;
-			initial_order.reserve(Size);
-			for (Index Idx = 0; Idx < Size; Idx++)
-			{
-				initial_order.push_back(Idx);
-			}
-			std::random_device rd;
-			std::mt19937 g(rd());
-			std::shuffle(initial_order.begin(), initial_order.end(), g);
-			for (Index Idx = 0; Idx < (Size - 1); Idx++)
-			{
-				all_[initial_order[Idx]].next_ = initial_order[Idx+1];
-			}
+            std::vector<Index> initial_order;
+            initial_order.reserve(Size);
+            for (Index Idx = 0; Idx < Size; Idx++)
+            {
+                initial_order.push_back(Idx);
+            }
+            std::random_device rd;
+            std::mt19937 g(rd());
+            std::shuffle(initial_order.begin(), initial_order.end(), g);
+            for (Index Idx = 0; Idx < (Size - 1); Idx++)
+            {
+                all_[initial_order[Idx]].NextRef() = initial_order[Idx+1];
+            }
 
-			Index first_remaining = initial_order[0];
+            Index first_remaining = initial_order[0];
 #endif
 			
 			POOL_STATS(global_free_counter_= Size;)
@@ -99,7 +99,7 @@ namespace ts
 			{
 				UnsafeStack<Node>& stack = free_per_thread_[thread_idx];
 				Index last_element = first_remaining + ElementsPerThread - 1;
-				all_[last_element].next_ = kInvalidIndex;
+				all_[last_element].NextRef() = kInvalidIndex;
 				stack.PushChain(all_[first_remaining], all_[last_element], ElementsPerThread);
 				first_remaining += ElementsPerThread;
 			}
@@ -175,13 +175,13 @@ namespace ts
 
 		void ReturnChain(Node& new_head, Node& chain_tail, [[maybe_unused]] uint16 chain_len)
 		{
-			assert(chain_tail.next_ == kInvalidIndex);
+			assert(chain_tail.NextRef() == kInvalidIndex);
 			POOL_STATS(used_counter_ -= chain_len;)
 			if constexpr (requires { new_head.OnReturnToPool(); })
 			{
 				for (IndexType iter{ GetPoolIndex(new_head) };
 					iter != kInvalidIndex;
-					iter = FromPoolIndex<Node>(iter).next_)
+					iter = FromPoolIndex<Node>(iter).NextRef())
 				{
 					FromPoolIndex<Node>(iter).OnReturnToPool();
 				}

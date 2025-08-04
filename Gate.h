@@ -31,9 +31,10 @@ namespace ts
 			assert(!task_);
 		}
 #endif
-		TRefCountPoolPtr<BaseTask, Index> task_;
+		TRefCountPoolPtr<BaseTask, BaseIndex<BaseTask>> task_;
 
 		DependencyNodeIndex next_;
+		DependencyNodeIndex& NextRef() { return next_; }
 	};
 
 	struct Gate

@@ -38,11 +38,11 @@ namespace ts
 		{
 			CollectionNode& node = FromPoolIndex(current);
 			len++;
-			if (!node.next_.IsValid())
+			if (!node.NextRef().IsValid())
 			{
 				break;
 			}
-			current = node.next_;
+			current = node.NextRef();
 		}
 		g_synchronizer_nodes_pool.ReturnChain(
 			FromPoolIndex(head),
@@ -72,8 +72,8 @@ namespace ts
 			pre_req[idx] = node.task_->GetGate();
 			assert(pre_req[idx] && pre_req[idx]->GetState() != ETaskState::Nonexistent_Pooled);
 			tags[idx] = node.task_tag_.RawValue();
-			assert(node.next_.IsValid() != (idx == result.len - 1));
-			current = node.next_;
+			assert(node.NextRef().IsValid() != (idx == result.len - 1));
+			current = node.NextRef();
 		}
 
 		TaskSystem::HandlePrerequires(task, std::span<Gate*>(pre_req, result.len), std::span<uint8>(tags, result.len));

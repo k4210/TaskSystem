@@ -58,20 +58,19 @@ namespace ts
 		}
 
 		void OnRefCountZero();
-		static std::span<GenericFuture> GetPoolSpan();
 
-		Index next_ = kInvalidIndex;
 #if !defined(NDEBUG)
 		void OnReturnToPool()
 		{
+			assert(gate_.IsEmpty());
 			const ETaskState old_state = gate_.ResetStateOnEmpty(ETaskState::Nonexistent_Pooled);
 			assert(old_state != ETaskState::Nonexistent_Pooled);
 		}
 #endif
 	protected:
-
-		Gate gate_;
 		AnyValue<6 * sizeof(uint8*)> result_;
+		Gate gate_;
+		Index next_ = kInvalidIndex;
 
 		friend class TaskSystem;
 		template<typename T, typename DerivedType> friend class CommonSpecialization;
@@ -153,8 +152,20 @@ namespace ts
 		}
 	};
 
+	class BaseFuture : public GenericFuture
+	{
+	public:
+		using IndexType = BaseIndex<BaseFuture>;
+		IndexType& NextRef() 
+		{
+			static_assert(sizeof(IndexType) == sizeof(Index), "IndexType must be same size as Index");
+			return *reinterpret_cast<IndexType*>(&next_);
+		}
+		static std::span<BaseFuture> GetPoolSpan();
+	};
+
 	template<typename T = void>
-	class Future : public GenericFuture, public CommonSpecialization<T, Future<T>>
+	class Future : public BaseFuture, public CommonSpecialization<T, Future<T>>
 	{
 	public:
 		void Done(T val)
@@ -167,7 +178,7 @@ namespace ts
 	};
 
 	template<>
-	class Future<void> : public GenericFuture
+	class Future<void> : public BaseFuture
 	{
 	public:
 		using ReturnType = void;

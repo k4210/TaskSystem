@@ -8,6 +8,7 @@ namespace ts
 	class BaseTask : public GenericFuture
 	{
 	public:
+		using IndexType = BaseIndex<BaseTask>;
 		static std::span<BaseTask> GetPoolSpan();
 		static BaseTask* GetCurrentTask();
 
@@ -15,6 +16,12 @@ namespace ts
 		void Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr);
 
 		ETaskFlags GetFlags() const { return flag_; }
+
+		IndexType& NextRef() 
+		{ 
+			static_assert(sizeof(IndexType) == sizeof(Index), "IndexType must be same size as Index");
+			return *reinterpret_cast<IndexType*>(&next_);
+		}
 #if TASK_RETRIGGER
 		void SetRetrigger()
 		{

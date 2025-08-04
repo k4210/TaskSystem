@@ -135,8 +135,9 @@ namespace ts
 		template<typename T = void>
 		static TRefCountPtr<Future<T>> MakeFuture()
 		{
-			static_assert(sizeof(GenericFuture) == sizeof(Future<T>));
-			return MakeGenericFuture().Cast<Future<T>>();
+			static_assert(sizeof(GenericFuture) == sizeof(BaseFuture));
+			static_assert(sizeof(BaseFuture) == sizeof(Future<T>));
+			return MakeBaseFuture().Cast<Future<T>>();
 		}
 
 		static void HandlePrerequires(BaseTask& task, std::span<Gate*> prerequiers = {}, std::span<uint8> prerequiers_tags = {});
@@ -146,7 +147,7 @@ namespace ts
 		static TRefCountPtr<BaseTask> CreateTask(std::move_only_function<void(BaseTask&)> function,
 			ETaskFlags flags = ETaskFlags::None LOCATION_PARAM);
 
-		static TRefCountPtr<GenericFuture> MakeGenericFuture();
+		static TRefCountPtr<BaseFuture> MakeBaseFuture();
 
 		static void OnReadyToExecute(TRefCountPtr<BaseTask> task);
 

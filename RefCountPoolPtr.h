@@ -6,7 +6,7 @@
 namespace ts
 {
 	//Node must be both ref counted and pooled
-	template<typename Node, typename IndexType = decltype(Node::next_)>
+	template<typename Node, typename IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>>
 	class TRefCountPoolPtr
 	{
 	public:

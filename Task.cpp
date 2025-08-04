@@ -16,7 +16,7 @@ namespace ts
 			, kWorkeThreadsNum, InitPoolSizePerThread(kDepNodePoolSize), MaxPoolSizePerThread(kDepNodePoolSize)
 #endif
 		> dependency_pool_;
-		Pool<GenericFuture, kFuturePoolSize
+		Pool<BaseFuture, kFuturePoolSize
 #if THREAD_SMART_POOL
 			, kWorkeThreadsNum, InitPoolSizePerThread(kFuturePoolSize), MaxPoolSizePerThread(kFuturePoolSize)
 #endif
@@ -69,7 +69,7 @@ namespace ts
 		return globals.dependency_pool_.GetPoolSpan();
 	}
 
-	std::span<GenericFuture> GenericFuture::GetPoolSpan()
+	std::span<BaseFuture> BaseFuture::GetPoolSpan()
 	{
 		return globals.future_pool_.GetPoolSpan();
 	}
@@ -90,9 +90,10 @@ namespace ts
 			gate_.ResetStateOnEmpty(ETaskState::Done);
 		}
 
-		if (globals.future_pool_.BelonsTo(*this))
+		BaseFuture& base_future = *static_cast<BaseFuture*>(this);
+		if (globals.future_pool_.BelonsTo(base_future))
 		{
-			globals.future_pool_.Return(*this);
+			globals.future_pool_.Return(base_future);
 		}
 		else
 		{
@@ -274,9 +275,9 @@ namespace ts
 		return globals.task_pool_.GetPoolSpan();
 	}
 
-	TRefCountPtr<GenericFuture> TaskSystem::MakeGenericFuture()
+	TRefCountPtr<BaseFuture> TaskSystem::MakeBaseFuture()
 	{
-		TRefCountPtr<GenericFuture> future = globals.future_pool_.Acquire();
+		TRefCountPtr<BaseFuture> future = globals.future_pool_.Acquire();
 		assert(future->gate_.IsEmpty());
 		const ETaskState old_state = future->gate_.ResetStateOnEmpty(ETaskState::PendingOrExecuting);
 		assert(old_state == ETaskState::Nonexistent_Pooled);
@@ -336,6 +337,7 @@ namespace ts
 			if (!node)
 			{
 				node = &globals.dependency_pool_.Acquire();
+				assert(!node->task_);
 				node->task_ = task;
 			}
 

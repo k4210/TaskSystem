@@ -101,16 +101,8 @@ namespace ts
 		const Node* first = nodes.data();
 		const Index idx = static_cast<Index>(std::distance(first, &node));
 		assert(idx < nodes.size());
-		using IndexType = decltype(Node::next_);
+		using IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>;
 		return IndexType{idx};
-	}
-
-	template<typename Node>
-	Node& FromPoolIndex(const Index index)
-	{
-		std::span<Node> nodes = Node::GetPoolSpan();
-		assert(index < nodes.size());
-		return nodes[index];
 	}
 
 	template<typename Node>

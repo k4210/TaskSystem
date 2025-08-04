@@ -14,7 +14,7 @@ namespace ts
 		using CollectionTag = BaseTag<CollectionNode, uint8>;
 		using SynchroniserTag = BaseTag<AccessSynchronizer, uint16>;
 		using CollectionIndex = BaseIndex<CollectionNode>;
-		using TaskIndex = BaseIndex<BaseTask>;
+		using TaskIndex = BaseTask::IndexType;
 
 		struct CollectionNode
 		{
@@ -31,6 +31,11 @@ namespace ts
 			{
 				task_ = nullptr;
 				task_tag_.Reset();
+			}
+
+			CollectionIndex& NextRef()
+			{
+				return next_;
 			}
 		};
 
@@ -102,9 +107,9 @@ namespace ts
 						allocated_node = CollectionNode::Acquire();
 					}
 					CollectionNode& node = FromPoolIndex<CollectionNode>(allocated_node);
-					assert(!node.next_.IsValid());
+					assert(!node.NextRef().IsValid());
 					node.task_.ResetNoRelease();
-					node.task_ = TRefCountPoolPtr<BaseTask>(prev_state.last_task_.RawValue(), false);
+					node.task_ = TRefCountPoolPtr<BaseTask>(prev_state.last_task_, false);
 					node.task_tag_ = prev_state.last_task_tag_;
 					result = allocated_node;
 					result_size = 1;
@@ -171,14 +176,14 @@ namespace ts
 				new_state.shared_collection_tag_ = prev_state.shared_collection_tag_.Next();
 				assert(new_state.released_shared_tasks_ < new_state.shared_collection_size_);
 
-				node.next_ = prev_state.shared_collection_head_;
+				node.NextRef() = prev_state.shared_collection_head_;
 
 			} while (!state_.compare_exchange_weak(prev_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
 			return SyncResult{
-				TRefCountPoolPtr<BaseTask>(prev_state.last_task_.RawValue()),
+				TRefCountPoolPtr<BaseTask>(prev_state.last_task_),
 				prev_state.last_task_tag_,
 				new_state.tag_};
 		}
@@ -216,7 +221,7 @@ namespace ts
 				new_state.shared_collection_tag_ = prev_state.shared_collection_tag_.Next();
 				assert(new_state.released_shared_tasks_ < new_state.shared_collection_size_);
 
-				FromPoolIndex(allocated_node).next_ = prev_state.shared_collection_head_;
+				FromPoolIndex(allocated_node).NextRef() = prev_state.shared_collection_head_;
 
 			} while (!state_.compare_exchange_weak(prev_state, new_state,
 				std::memory_order_release,
