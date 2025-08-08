@@ -93,6 +93,8 @@ std::atomic<uint64> global_counter = 0;
 int main()
 {
 	std::cout << "sizeof(AccessSynchronizer::State) : " << sizeof(AccessSynchronizer::State) << std::endl;
+	std::cout << "sizeof(GenericFuture) : " << sizeof(GenericFuture) << std::endl;
+	std::cout << "sizeof(Gate) : " << sizeof(Gate) << std::endl;
 
 	TaskSystem::StartWorkerThreads();
 	std::this_thread::sleep_for(4ms); // let worker threads start

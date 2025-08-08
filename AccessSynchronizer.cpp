@@ -37,6 +37,8 @@ namespace ts
 		while (true)
 		{
 			CollectionNode& node = FromPoolIndex(current);
+			//DEBUG_CODE(BaseTask* tsk = node.task_.Get());
+			//assert(!tsk || (tsk->GetRefCount() > 1) || tsk->GetGate()->IsEmpty());
 			len++;
 			if (!node.NextRef().IsValid())
 			{

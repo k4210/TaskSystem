@@ -290,6 +290,7 @@ namespace ts
 			if (node_chain_to_release.IsValid())
 			{
 				CollectionNode::ReleaseChain(node_chain_to_release);
+				assert(task.GetRefCount() > 0);
 			}
 		}
 
@@ -445,9 +446,7 @@ namespace ts
 			DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
 			resource_->synchronizer_.ReleaseExclusive(*local_current_task);
 			constexpr bool bump_tag = true;
-			//const uint32 unblocked = 
-				gate->Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
-			//assert(unblocked <= 1);
+			gate->Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
 			assert(gate->IsEmpty());
 		}
 

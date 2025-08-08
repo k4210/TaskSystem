@@ -37,6 +37,10 @@ namespace ts
 		DependencyNodeIndex& NextRef() { return next_; }
 	};
 
+	struct Gate;
+
+	using GateTag = BaseTag<Gate, uint8>;
+
 	struct Gate
 	{
 		Gate()
@@ -59,9 +63,9 @@ namespace ts
 			return depending_.GetState().gate;
 		}
 
-		auto GetInnerState() const
+		GateTag GetTag() const
 		{
-			return depending_.GetState();
+			return GateTag::FromRawValue( depending_.GetState().tag );
 		}
 
 		bool IsEmpty() const
@@ -92,6 +96,4 @@ namespace ts
 	private:
 		lock_free::Collection<DependencyNode, ETaskState> depending_;
 	};
-
-	using GateTag = BaseTag<Gate, uint8>;
 }

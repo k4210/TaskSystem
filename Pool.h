@@ -22,9 +22,11 @@ namespace ts
 	template<typename Node>
 	struct UnsafeStack
 	{
+		using IndexType = std::remove_cvref_t<decltype(Node{}.NextRef())>;
+
 		void Push(Node& node)
 		{
-			const Index idx = GetPoolIndex(node);
+			const IndexType idx = GetPoolIndex(node);
 			node.NextRef() = head_;
 			head_ = idx;
 			size_++;
@@ -32,7 +34,7 @@ namespace ts
 
 		void PushChain(Node& new_head, Node& chain_tail, uint16 len)
 		{
-			const Index idx = GetPoolIndex(new_head);
+			const IndexType idx = GetPoolIndex(new_head);
 			chain_tail.NextRef() = head_;
 			head_ = idx;
 			size_ += len;
@@ -40,13 +42,14 @@ namespace ts
 
 		Node* Pop()
 		{
-			if (kInvalidIndex == head_)
+			if (!head_.IsValid())
 			{
 				return nullptr;
 			}
 			Node& node = FromPoolIndex<Node>(head_);
-			head_ = node.NextRef();
-			node.NextRef() = kInvalidIndex;
+			auto& next_ref = node.NextRef();
+			head_ = next_ref;
+			next_ref.Reset();
 			size_--;
 			return &node;
 		}
@@ -54,7 +57,7 @@ namespace ts
 		uint16 GetSize() const { return size_; }
 
 	private:
-		Index head_ = kInvalidIndex;
+		IndexType head_;
 		uint16 size_ = 0;
 	};
 
@@ -74,7 +77,7 @@ namespace ts
             {
                 all_[Idx - 1].NextRef() = Idx;
             }
-            IndexType first_remaining{ 0 };
+            Index first_remaining{ 0 };
 #else
             std::vector<Index> initial_order;
             initial_order.reserve(Size);
@@ -98,7 +101,7 @@ namespace ts
 			for (int32 thread_idx = 0; thread_idx < NumThreads; thread_idx++)
 			{
 				UnsafeStack<Node>& stack = free_per_thread_[thread_idx];
-				Index last_element = first_remaining + ElementsPerThread - 1;
+				const Index last_element = first_remaining + ElementsPerThread - 1;
 				all_[last_element].NextRef() = kInvalidIndex;
 				stack.PushChain(all_[first_remaining], all_[last_element], ElementsPerThread);
 				first_remaining += ElementsPerThread;
@@ -106,7 +109,7 @@ namespace ts
 			POOL_STATS(global_free_counter_ -= NumThreads * ElementsPerThread;)
 			POOL_STATS(thread_free_counter_ = NumThreads * ElementsPerThread;)
 #endif
-			free_.Reset(first_remaining);
+			free_.Reset(IndexType{first_remaining});
 		}
 
 #if THREAD_SMART_POOL
@@ -132,7 +135,7 @@ namespace ts
 #if DO_POOL_STATS
 			if (ptr)
 			{
-				uint32 loc_counter = ++used_counter_;
+				const uint32 loc_counter = ++used_counter_;
 				max_used = std::max(loc_counter, max_used);
 #if THREAD_SMART_POOL
 				if (!use_thread_stack)
@@ -212,7 +215,6 @@ namespace ts
 
 #if DO_POOL_STATS
 		uint32 GetMaxUsedNum() { return max_used; }
-		uint32 GetUsedNum() { return used_counter_; }
 		void AssertEmpty()
 		{
 			assert(!used_counter_);

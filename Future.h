@@ -54,7 +54,7 @@ namespace ts
 
 		GateTag GetTag() const
 		{
-			return GateTag::FromRawValue( gate_.GetInnerState().tag );
+			return gate_.GetTag();
 		}
 
 		void OnRefCountZero();
@@ -68,7 +68,7 @@ namespace ts
 		}
 #endif
 	protected:
-		AnyValue<6 * sizeof(uint8*)> result_;
+		AnyValue<5 * sizeof(uint8*)> result_;
 		Gate gate_;
 		Index next_ = kInvalidIndex;
 

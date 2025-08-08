@@ -176,7 +176,7 @@ namespace ts::lock_free
 
 		bool IsEmpty() const
 		{
-			return GetState().head == kInvalidIndex;
+			return !GetState().head.IsValid();
 		}
 
 		// Returns old gate

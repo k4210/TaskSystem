@@ -76,9 +76,12 @@ namespace ts
 
 	void GenericFuture::OnRefCountZero()
 	{
+		DEBUG_CODE(std::atomic_thread_fence(std::memory_order_seq_cst);)
+		assert(gate_.IsEmpty());
 		const ETaskState state = gate_.GetState();
 		assert(state != ETaskState::Nonexistent_Pooled);
 		assert(gate_.IsEmpty());
+		DEBUG_CODE(std::atomic_thread_fence(std::memory_order_seq_cst);)
 		if (state == ETaskState::DoneUnconsumedResult)
 		{
 			// RefCount is zero, so no other thread has access to the task
@@ -124,7 +127,9 @@ namespace ts
 						if (!marked_as_used)
 						{
 							marked_as_used = true;
-							globals.used_threads_.fetch_add(1, std::memory_order_relaxed);
+							globals.used_threads_.fetch_add(1
+								//, std::memory_order_relaxed
+							);
 						}
 
 						do
@@ -139,7 +144,9 @@ namespace ts
 						if (marked_as_used)
 						{
 							marked_as_used = false;
-							globals.used_threads_.fetch_sub(1, std::memory_order_relaxed);
+							globals.used_threads_.fetch_sub(1
+								//, std::memory_order_relaxed
+							);
 						}
 
 						if (globals.working_) [[likely]]
@@ -328,6 +335,7 @@ namespace ts
 		for(int32 index = 0; index < prerequiers.size(); index++)
 		{
 			Gate* prereq = prerequiers[index];
+			assert(!prereq || prereq->GetState() != ETaskState::Nonexistent_Pooled);
 			if (!prereq || (prereq->GetState() != ETaskState::PendingOrExecuting))
 			{
 				inactive_prereq++;

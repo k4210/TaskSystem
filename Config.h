@@ -4,7 +4,7 @@
 
 #define COROUTINE_CUSTOM_ALLOC 1
 
-#define THREAD_SMART_POOL 0
+#define THREAD_SMART_POOL 1
 
 #define TASK_RETRIGGER 0
 
@@ -15,7 +15,7 @@
 #ifdef NDEBUG
 #define DO_POOL_STATS 0
 #else
-#define DO_POOL_STATS 1
+#define DO_POOL_STATS 0
 #endif // _DEBUG
 
 namespace ts
