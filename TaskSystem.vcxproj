@@ -169,6 +169,7 @@
   <ItemGroup>
     <ClCompile Include="AccessSynchronizer.cpp" />
     <ClCompile Include="AntHill.cpp" />
+    <ClCompile Include="InplaceString.h" />
     <ClCompile Include="Task.cpp" />
     <ClCompile Include="Coroutine.cpp" />
     <ClCompile Include="Test.cpp" />
