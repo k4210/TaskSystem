@@ -1,5 +1,4 @@
 #include <string_view>
-#include <array>
 
 template<size_t InSize = 2 * sizeof(void*)>
 struct InplaceString
@@ -15,19 +14,27 @@ struct InplaceString
 
 	InplaceString& operator= (std::string_view str)
 	{
-		freeAlloc(); //TODO: try to reuse existing allocation
+		if (!inplace() && 
+			(calcSize() >= str.size()) && 
+			(str.size() >= kSize))
+		{
+			std::memcpy(data_.ptr_, str.data(), str.size());
+			data_.ptr_[str.size()] = '\0';
+			return;
+		}
 
+		freeAlloc(); 
 		fromView(str);
 	}
 
 	InplaceString(InplaceString&& other)
 	{
-		std::swap(data_.str_, other.data_.str_);
+		std::swap(data_, other.data_);
 	}
 
 	InplaceString& operator= (InplaceString&& other)
 	{
-		std::swap(data_.str_, other.data_.str_);
+		std::swap(data_, other.data_);
 	}
 
 	InplaceString(const InplaceString& other) = delete;
@@ -40,7 +47,7 @@ struct InplaceString
 
 	bool inplace() const
 	{
-		return data_.str_[kSize - 1] == '\0';
+		return data_.str_[kSize - 1] == 0;
 	}
 
 	std::string_view view() const
@@ -50,7 +57,7 @@ struct InplaceString
 			: std::string_view(data_.ptr_);
 	}
 
-	size_t size() const
+	size_t calcSize() const
 	{
 		return inplace()
 			? std::strlen(data_.str_)
@@ -86,6 +93,6 @@ private:
 	union
 	{
 		char* ptr_;
-		std::array<char, kSize> str_ = {0};
+		char str_[kSize]  = {0};
 	} data_;
 };
