@@ -15,7 +15,7 @@ struct InplaceString
 	InplaceString& operator= (std::string_view str)
 	{
 		if (!inplace() && 
-			(calcSize() >= str.size()) && 
+			(size() >= str.size()) && 
 			(str.size() >= kSize))
 		{
 			std::memcpy(data_.ptr_, str.data(), str.size());
@@ -57,7 +57,7 @@ struct InplaceString
 			: std::string_view(data_.ptr_);
 	}
 
-	size_t calcSize() const
+	size_t size() const
 	{
 		return inplace()
 			? std::strlen(data_.str_)
