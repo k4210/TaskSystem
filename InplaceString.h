@@ -19,7 +19,7 @@ struct InplaceString
 			(str.size() >= kSize))
 		{
 			std::memcpy(data_.ptr_, str.data(), str.size());
-			data_.ptr_[str.size()] = '\0';
+			data_.ptr_[str.size()] = 0;
 			return;
 		}
 
@@ -75,19 +75,15 @@ private:
 
 	void fromView(std::string_view str)
 	{
-		if (str.size() < kSize)
-		{
-			std::memcpy(data_.str_, str.data(), str.size());
-			data_.str_[str.size()] = '\0';
-			data_.str_[kSize - 1] = 0; // Mark as inplace
-		}
-		else
+		const bool inplace = str.size() < kSize;
+		if (inplace)
 		{
 			data_.ptr_ = static_cast<char*>(std::malloc(str.size() + 1));
-			std::memcpy(data_.ptr_, str.data(), str.size());
-			data_.ptr_[str.size()] = '\0';
-			data_.str_[kSize - 1] = 0xFF; // Mark as non-inplace
 		}
+		char* dest = inplace ? data_.str_ : data_.ptr_;
+		std::memcpy(dest, str.data(), str.size());
+		dest[str.size()] = 0;
+		data_.str_[kSize - 1] = inplace ? 0 : 0xFF;
 	}
 
 	union
