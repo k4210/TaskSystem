@@ -47,9 +47,9 @@ namespace ts
 			return TaskSystem::InitializeTask(std::forward<F>(function), pre_req, flags LOCATION_PASS).Cast<Future<ResultType>>();
 		}
 
-		Gate* GetGate()
+		Gate& GetGate()
 		{
-			return &gate_;
+			return gate_;
 		}
 
 		GateTag GetTag() const
@@ -111,7 +111,7 @@ namespace ts
 		auto ThenRead(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
 		{
 			DerivedType* common = static_cast<DerivedType*>(this);
-			Gate* pre_req[] = { common->GetGate() };
+			Gate* pre_req[] = { &common->GetGate() };
 			using ResultType = decltype(function(T{}));
 			auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() -> ResultType
 				{
@@ -132,7 +132,7 @@ namespace ts
 		auto ThenConsume(F&& function, ETaskFlags flags = ETaskFlags::None LOCATION_PARAM)
 		{
 			DerivedType* common = static_cast<DerivedType*>(this);
-			Gate* pre_req[] = { common->GetGate() };
+			Gate* pre_req[] = { &common->GetGate() };
 			using ResultType = decltype(function(T{}));
 			auto lambda = [source = TRefCountPtr<DerivedType>(common), function = std::forward<F>(function)]() mutable -> ResultType
 				{

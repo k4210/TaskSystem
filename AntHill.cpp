@@ -9,28 +9,6 @@
 constexpr uint32 number_ants = 3 * 1024;
 constexpr uint32 resolution = 1024;
 
-struct GraphicContainer
-{
-    //AccessSynchronizer synchronizer_;
-    std::vector<sf::CircleShape> components_[2];
-    uint8 write_idx_ = 0;
-
-    void OnFrameReady()
-    {
-        write_idx_ = 1 - write_idx_;
-    }
-
-    std::vector<sf::CircleShape>& GetWrite()
-    {
-        return components_[write_idx_];
-    }
-
-    const std::vector<sf::CircleShape>& GetRead() const
-    {
-        return components_[1 - write_idx_];
-    }
-};
-
 #endif // ANT_HILL || ANT_HILL_STD
 
 #if ANT_HILL
@@ -43,13 +21,30 @@ struct GraphicContainer
 using namespace ts;
 bool g_running = true;
 
-TDetachCoroutine render(GraphicContainer& graphic_container, TickSync& tick_sync)
+struct GraphicContainer
+{
+    AccessSynchronizer synchronizer_;
+    std::vector<sf::CircleShape> components_;
+
+    std::vector<sf::CircleShape>& GetWrite()
+    {
+        return components_;
+    }
+
+    const std::vector<sf::CircleShape>& GetRead() const
+    {
+        return components_;
+    }
+};
+
+TDetachCoroutine render(SyncHolder<GraphicContainer> in_graphic_container, TickSync& tick_sync)
 {
     sf::Font font("tuffy.ttf");
 
     sf::RenderWindow window(sf::VideoMode(sf::Vector2u(resolution, resolution)), "Anthill");
     window.display();
-    AvgTime event_avg, render_avg, wait_avg;
+    window.clear();
+    AvgTime event_avg, render_avg, wait_avg, exclusive_avg;
     TickScope tick_scope(tick_sync);
     TimeType time_begin = GetTime();
     while (window.isOpen())
@@ -67,10 +62,19 @@ TDetachCoroutine render(GraphicContainer& graphic_container, TickSync& tick_sync
 
         const TimeType time_rendering = event_avg.add(time_begin);
 
-        window.clear();
-        for (const sf::CircleShape& shape : graphic_container.GetRead())
         {
-            window.draw(shape);
+            bool success = window.setActive(false);
+            assert(success);
+
+            AccessScopeCo<GraphicContainer> graphic_container = co_await in_graphic_container;
+            TimeType exlusive_scope_begin = GetTime();
+            //success = window.setActive(true);
+            //assert(success);
+            for (const sf::CircleShape& shape : graphic_container->GetRead())
+            {
+                window.draw(shape);
+            }
+            exclusive_avg.add(exlusive_scope_begin);
         }
         [&]() // Draw FPS
         {
@@ -78,21 +82,25 @@ TDetachCoroutine render(GraphicContainer& graphic_container, TickSync& tick_sync
                 font,
                 "event: " + std::to_string(event_avg.average())
                 + " render: " + std::to_string(render_avg.average()) 
-                + " wait: " + std::to_string(wait_avg.average()),
-                48);
+                + " wait: " + std::to_string(wait_avg.average())
+                + " exclusive: " + std::to_string(exclusive_avg.average()),
+                24);
             text.setFillColor(sf::Color::Red);
             window.draw(text);
         }();
         window.display();
-        const bool success = window.setActive(false);
+        window.clear();
+        bool success = window.setActive(false);
         assert(success);
 		const TimeType time_waiting = render_avg.add(time_rendering);
         co_await tick_scope.WaitForNextFrame();
-		time_begin = wait_avg.add(time_waiting);
+        //success = window.setActive(true);
+		//assert(success);
+        time_begin = wait_avg.add(time_waiting);
     }
 }
 
-TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx, TickSync& tick_sync)
+TDetachCoroutine ant(SyncHolder<GraphicContainer> in_graphic_container, uint32 idx, TickSync& tick_sync)
 {
     std::srand(idx);
     float x = static_cast<float>(std::abs(std::rand()) % resolution);
@@ -123,7 +131,8 @@ TDetachCoroutine ant(GraphicContainer& graphic_container, uint32 idx, TickSync& 
         update(y, dy);
 
         {
-            sf::CircleShape& shape = graphic_container.GetWrite()[idx];
+            SharedAccessScopeCo<GraphicContainer> graphic_container = co_await in_graphic_container.Shared();
+            sf::CircleShape& shape = graphic_container->GetWrite()[idx];
             shape.setPosition(sf::Vector2f(x, y));
             shape.setRadius(10.0f);
         }
@@ -137,21 +146,21 @@ int main()
     TaskSystem::StartWorkerThreads();
 
     GraphicContainer graphic_container;
-    graphic_container.components_[0].resize(number_ants);
-    graphic_container.components_[1].resize(number_ants);
+    graphic_container.components_.resize(number_ants);
 
     TickSync tick_sync;
     tick_sync.Initialize([&](uint32)
         {
-            graphic_container.OnFrameReady();
+           // graphic_container.OnFrameReady();
         });
 
-    TaskSystem::AsyncResume(render(graphic_container, tick_sync));
+    SyncHolder<GraphicContainer> guarded_graphic_container{&graphic_container};
+    TaskSystem::AsyncResume(render(guarded_graphic_container, tick_sync));
 
     //SyncHolder<GraphicContainer*> graphic_holder(&graphic_container);
     for (uint32 idx = 0; idx < number_ants; idx++)
     {
-        TaskSystem::AsyncResume(ant(graphic_container, idx, tick_sync));
+        TaskSystem::AsyncResume(ant(guarded_graphic_container, idx, tick_sync));
     }
 
     TaskSystem::WaitForWorkerThreadsToJoin();
@@ -166,6 +175,30 @@ int main()
 
 #include <thread>
 #include <barrier>
+
+
+struct GraphicContainer
+{
+    //AccessSynchronizer synchronizer_;
+    std::vector<sf::CircleShape> components_[2];
+    uint8 write_idx_ = 0;
+
+    void OnFrameReady()
+    {
+        write_idx_ = 1 - write_idx_;
+    }
+
+    std::vector<sf::CircleShape>& GetWrite()
+    {
+        return components_[write_idx_];
+    }
+
+    const std::vector<sf::CircleShape>& GetRead() const
+    {
+        return components_[1 - write_idx_];
+    }
+};
+
 
 int main()
 {

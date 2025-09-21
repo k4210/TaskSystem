@@ -100,7 +100,7 @@ namespace ts
 			if (old_node != new_node)
 			{
 				// Call AddRef before Release, in case the new reference is the same as the old reference.
-				index_ = new_node ? GetPoolIndex(*new_node) : kInvalidIndex;
+				index_ = new_node ? GetPoolIndex(*new_node) : IndexType{kInvalidIndex};
 				if (new_node)
 				{
 					new_node->AddRef();

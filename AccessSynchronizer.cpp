@@ -54,32 +54,44 @@ namespace ts
 
 	void AccessSynchronizer::SyncMultiResult::HandleOnTask(const AccessSynchronizer::SyncMultiResult result, BaseTask& task)
 	{
-		if (!result.len)
+		if (!result.len_)
 		{
 			TaskSystem::HandlePrerequires(task);
 			return;
 		}
 
-		const size_t mem_size_gates = result.len * sizeof(Gate*);
-		const size_t mem_size_tags = result.len * sizeof(uint8);
+		const size_t mem_size_gates = result.len_ * sizeof(Gate*);
+		const size_t mem_size_tags = result.len_ * sizeof(uint8);
 
 		uint8* raw_mem = (uint8*)alloca(mem_size_gates + mem_size_tags);
 		Gate** pre_req = reinterpret_cast<Gate**>(raw_mem);
 		uint8* tags = reinterpret_cast<uint8*>(raw_mem + mem_size_gates);
 
-		CollectionIndex current = result.head_;
-		for(uint32 idx = 0; idx < result.len; idx++)
+		if (result.IsSingle())
 		{
-			AccessSynchronizer::CollectionNode& node = FromPoolIndex(current);
-			pre_req[idx] = node.task_->GetGate();
-			assert(pre_req[idx] && pre_req[idx]->GetState() != ETaskState::Nonexistent_Pooled);
-			tags[idx] = node.task_tag_.RawValue();
-			assert(node.NextRef().IsValid() != (idx == result.len - 1));
-			current = node.NextRef();
+			pre_req[0] = &result.task_->GetGate();
+			assert(pre_req[0]->GetState() != ETaskState::Nonexistent_Pooled);
+			tags[0] = result.task_tag_.RawValue();
+		}
+		else
+		{
+			CollectionIndex current = result.head_;
+			for(uint32 idx = 0; idx < result.len_; idx++)
+			{
+				AccessSynchronizer::CollectionNode& node = FromPoolIndex(current);
+				pre_req[idx] = &(node.task_->GetGate());
+				assert(pre_req[idx]->GetState() != ETaskState::Nonexistent_Pooled);
+				tags[idx] = node.task_tag_.RawValue();
+				assert(node.NextRef().IsValid() != (idx == result.len_ - 1));
+				current = node.NextRef();
+			}
 		}
 
-		TaskSystem::HandlePrerequires(task, std::span<Gate*>(pre_req, result.len), std::span<uint8>(tags, result.len));
+		TaskSystem::HandlePrerequires(task, std::span<Gate*>(pre_req, result.len_), std::span<uint8>(tags, result.len_));
 
-		AccessSynchronizer::CollectionNode::ReleaseChain(result.head_);
+		if(!result.IsSingle())
+		{
+			AccessSynchronizer::CollectionNode::ReleaseChain(result.head_);
+		}
 	}
 }

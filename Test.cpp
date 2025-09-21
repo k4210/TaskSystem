@@ -92,7 +92,7 @@ std::atomic<uint64> global_counter = 0;
 
 int main()
 {
-	std::cout << "sizeof(AccessSynchronizer::State) : " << sizeof(AccessSynchronizer::State) << std::endl;
+	std::cout << "sizeof(AccessSynchronizer::State) : " << sizeof(AccessSynchronizer::State) << " is_lock_free " << std::atomic<AccessSynchronizer::State>{}.is_lock_free() << std::endl;
 	std::cout << "sizeof(GenericFuture) : " << sizeof(GenericFuture) << std::endl;
 	std::cout << "sizeof(Gate) : " << sizeof(Gate) << std::endl;
 
@@ -150,7 +150,7 @@ int main()
 			TRefCountPtr<Future<>> B = TaskSystem::InitializeTask(LambdaEmpty);
 			TRefCountPtr<Future<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
-			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
+			Gate* Arr[]{ &A->GetGate(), &B->GetGate(), &C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
 		}, TestDetails
 		{
@@ -165,7 +165,7 @@ int main()
 			TRefCountPtr<Future<>> B = TaskSystem::InitializeTask(LambdaEmpty);
 			TRefCountPtr<Future<>> C = TaskSystem::InitializeTask(LambdaEmpty);
 
-			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
+			Gate* Arr[]{ &A->GetGate(), &B->GetGate(), &C->GetGate() };
 			TaskSystem::InitializeTask(LambdaEmpty, Arr);
 		}, TestDetails
 		{
