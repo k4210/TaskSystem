@@ -101,6 +101,19 @@ struct IntrinsicDoubleLinkedList
     T* head() const { return m_head; }
 	T* tail() const { return m_tail; }
 
+    ~IntrinsicDoubleLinkedList()
+    {
+        T* current = m_head;
+        while (current)
+        {
+            T* next = current->next;
+            delete current;
+            current = next;
+        }
+        m_head = nullptr;
+        m_tail = nullptr;
+    }
+
 private:
 	T* m_head = nullptr;
 	T* m_tail = nullptr;
@@ -108,8 +121,6 @@ private:
 
 std::vector<sf::Vector2f> SumPoly(const std::vector<sf::Vector2f>& polyA, const std::vector<sf::Vector2f>& polyB)
 {
-     std::vector<sf::Vector2f> result;
-
     struct VertexNode
     {
         sf::Vector2f position;
@@ -201,60 +212,66 @@ std::vector<sf::Vector2f> SumPoly(const std::vector<sf::Vector2f>& polyA, const 
 	fillEntryExit(listA, polyB);
 	fillEntryExit(listB, polyA);
 
-	//Stage 3: construct result
-	VertexNode* current = listA.head();
-	while (current && !current->intersect)
-		current = current->next;
-	if (!current)
-		return result;
-
-	VertexNode* closedLoop = current;
-	bool directionForward = true;
-	bool usingA = true;
-	uint32_t loopCount = 0;
-    do
+	//STAGE 3: traverse to construct result
+    auto constructResult = [&listA, &listB]() -> std::vector<sf::Vector2f>
     {
-        result.push_back(current->position);
+        std::vector<sf::Vector2f> result;
+	    VertexNode* current = listA.head();
+	    while (current && !current->intersect) //find first intersection
+		    current = current->next;
+	    if (!current)
+		    return result;
 
-        if(current->intersect)
+	    VertexNode* closedLoop = current;
+	    bool directionForward = true;
+	    bool usingA = true;
+	    uint32_t loopCount = 0;
+        do
         {
-            //ADD
-            current = current->neighbor;
-			directionForward = !current->entry;
-			usingA = !usingA;
+            result.push_back(current->position);
 
-            // B - A
-            /*
-            if (usingA)
+            if(current->intersect)
             {
-                if (current->entry != directionForward)
+                //ADD
+                current = current->neighbor;
+			    directionForward = !current->entry;
+			    usingA = !usingA;
+
+                // B - A
+                /*
+                if (usingA)
                 {
-                    current = current->neighbor;
-                    directionForward = !current->entry;
-                    usingA = false;
-                }
-            } 
-            else
-            {
-                if (current->entry == directionForward)
+                    if (current->entry != directionForward)
+                    {
+                        current = current->neighbor;
+                        directionForward = !current->entry;
+                        usingA = false;
+                    }
+                } 
+                else
                 {
-                    current = current->neighbor;
-                    directionForward = current->entry;
-                    usingA = true;
-                }
-			}
-            */
+                    if (current->entry == directionForward)
+                    {
+                        current = current->neighbor;
+                        directionForward = current->entry;
+                        usingA = true;
+                    }
+			    }
+                */
+            }
+
+            current = directionForward 
+			    ? (current->next ? current->next : (usingA ? listA.head() : listB.head()))
+			    : (current->prev ? current->prev : (usingA ? listA.tail() : listB.tail()));
         }
+        while((current != closedLoop) && (current != closedLoop->neighbor) && (loopCount++ < 10000));
+		if(loopCount >= 10000)
+		    std::cerr << "Tnfinite loop detected in polygon sum!" << std::endl;
 
-        
-        current = directionForward 
-			? (current->next ? current->next : (usingA ? listA.head() : listB.head()))
-			: (current->prev ? current->prev : (usingA ? listA.tail() : listB.tail()));
-    }
-    while((current != closedLoop) && (current != closedLoop->neighbor) && (loopCount++ < 10000));
-    if(loopCount >= 10000)
-		std::cerr << "Tnfinite loop detected in polygon sum!" << std::endl;
-    return result;
+        return result;
+    };
+   
+    return constructResult();
 }
 
 int main()
