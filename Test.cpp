@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include <vector>
+#include "InplaceString.h"
 
 #if TEST_MAIN
 
@@ -66,6 +67,8 @@ public:
 	std::vector<DebugData> debug_data_;
 
 	std::atomic_uint32_t counter_;
+
+	InplaceString<> str;
 
 	AccessSynchronizer synchronizer_;
 
