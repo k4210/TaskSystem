@@ -83,6 +83,8 @@ namespace ts
 		// return number of unblocked tasks
 		uint32 Unblock(ETaskState new_state, TRefCountPtr<BaseTask>* out_first_ready_dependency = nullptr, bool inc_tag = false);
 
+		bool UnblockSingle();
+
 		bool AddDependencyInner(DependencyNode& node, const ETaskState required_state, const uint8 required_tag)
 		{
 			return depending_.Add(node, required_state, required_tag);

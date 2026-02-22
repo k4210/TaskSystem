@@ -241,6 +241,31 @@ namespace ts::lock_free
 			return old_state;
 		}
 
+		template<typename Func>
+		bool ConsumeSingle(Func& func)
+		{
+			State old_state = state_.load(std::memory_order_relaxed);
+			State new_state;
+
+			Node* node = nullptr;
+
+			do
+			{
+				new_state = old_state;
+				if (new_state.head == kInvalidIndex)
+					return false;
+
+				node = &FromPoolIndex<Node>(old_state.head);
+				new_state.head = node->NextRef();
+			} while (!state_.compare_exchange_weak(old_state, new_state,
+				std::memory_order_release,
+				std::memory_order_relaxed));
+
+			func(*node);
+
+			return true;
+		}
+
 		State GetState() const
 		{
 			return state_.load(

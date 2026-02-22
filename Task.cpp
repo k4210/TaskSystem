@@ -243,6 +243,17 @@ namespace ts
 		return chain_len;
 	}
 
+	bool Gate::UnblockSingle()
+	{
+		assert(GetState() == ETaskState::PendingOrExecuting);
+		auto handle_dependency = [&](DependencyNode& node)
+		{
+			BaseTask::OnUnblocked(std::move(node.task_).ToRefCountPtr(), nullptr);
+			globals.dependency_pool_.Return(node);
+		};
+		return depending_.ConsumeSingle(handle_dependency);
+	}
+
 	void BaseTask::Execute(TRefCountPtr<BaseTask>* out_first_ready_dependency)
 	{
 		assert(gate_.GetState() == ETaskState::PendingOrExecuting);

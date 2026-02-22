@@ -4,6 +4,7 @@
 #include "Task.h"
 #include "Future.h"
 #include "AccessSynchronizer.h"
+#include "Channel.h"
 
 namespace ts
 {
@@ -162,11 +163,16 @@ namespace ts
 			return AccessSynchronizerExclusiveTaskAwaiter<TValue>( std::forward<SyncHolder<TValue>>(resource) );
 		}
 
-		
 		template<SyncT TValue>
 		auto await_transform(SharedSyncHolder<TValue> resource)
 		{
 			return AccessSynchronizerSharedTaskAwaiter<TValue>( std::forward<SharedSyncHolder<TValue>>(resource) );
+		}
+
+		template<typename T>
+		auto await_transform(ChannelReadResult<T> result)
+		{
+			return ChannelReadAwaiter<T>(std::move(result));
 		}
 	};
 

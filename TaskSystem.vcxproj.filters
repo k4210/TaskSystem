@@ -69,6 +69,12 @@
     <ClInclude Include="TickSync.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Channel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SpinMutex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Task.cpp">
@@ -84,9 +90,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="AntHill.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Poly.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

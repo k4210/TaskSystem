@@ -198,7 +198,7 @@ namespace ts
 
 		bool await_ready()
 		{
-			return !inner_task_->IsPendingOrExecuting();
+			return !inner_task_ || !inner_task_->IsPendingOrExecuting();
 		}
 		void await_suspend(std::coroutine_handle<> handle)
 		{
@@ -211,7 +211,13 @@ namespace ts
 		}
 		auto await_resume()
 		{
-			assert(!inner_task_->IsPendingOrExecuting());
+			if constexpr (std::is_void_v<ReturnType>)
+			{
+				if (!inner_task_)
+					return;
+			}
+
+			assert(inner_task_ && !inner_task_->IsPendingOrExecuting());
 			TRefCountPtr<SpecializedType> moved_task = std::move(inner_task_);
 			inner_task_ = nullptr;
 			if constexpr (!std::is_void_v<ReturnType>)

@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -150,6 +150,7 @@
     <ClInclude Include="AccessSynchronizer.h" />
     <ClInclude Include="AnyValue.h" />
     <ClInclude Include="BaseTask.h" />
+    <ClInclude Include="Channel.h" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="Coroutine.h" />
@@ -160,6 +161,7 @@
     <ClInclude Include="Profiling.h" />
     <ClInclude Include="RefCount.h" />
     <ClInclude Include="SimpleAllocator.h" />
+    <ClInclude Include="SpinMutex.h" />
     <ClInclude Include="Task.h" />
     <ClInclude Include="RefCountPoolPtr.h" />
     <ClInclude Include="Future.h" />
@@ -169,7 +171,6 @@
   <ItemGroup>
     <ClCompile Include="AccessSynchronizer.cpp" />
     <ClCompile Include="AntHill.cpp" />
-    <ClCompile Include="Poly.cpp" />
     <ClCompile Include="Task.cpp" />
     <ClCompile Include="Coroutine.cpp" />
     <ClCompile Include="Test.cpp" />
