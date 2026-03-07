@@ -8,8 +8,8 @@
 
 #define TASK_RETRIGGER 0
 
-#define TEST_MAIN 1
-#define ANT_HILL 0
+#define TEST_MAIN 0
+#define ANT_HILL 1
 #define ANT_HILL_STD 0
 
 #ifdef NDEBUG

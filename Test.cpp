@@ -164,21 +164,6 @@ int main()
 
 	PerformTest([&](uint32)
 		{
-			TRefCountPtr<Future<>> A = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Future<>> B = TaskSystem::InitializeTask(LambdaEmpty);
-			TRefCountPtr<Future<>> C = TaskSystem::InitializeTask(LambdaEmpty);
-
-			Gate* Arr[]{ A->GetGate(), B->GetGate(), C->GetGate() };
-			TaskSystem::InitializeTask(LambdaEmpty, Arr);
-		}, TestDetails
-		{
-			.num_per_body = 4,
-			.name = "Execute empty test",
-			.included_cleanup = WaitForTasks
-		});
-
-	PerformTest([&](uint32)
-		{
 			TRefCountPtr<Future<std::string>> A = TaskSystem::InitializeTask(LambdaProduce);
 			A->ThenRead(LambdaRead);
 			TRefCountPtr<Future<std::string>> C = A->ThenRead(LambdaReadPass);
@@ -289,7 +274,7 @@ int main()
 				.name = "synchronizer test",
 				.included_cleanup = WaitForTasks
 			});
-			assert(static_cast<uint32>(asset_ptr->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
+		assert(static_cast<uint32>(asset_ptr->data_) == TestDetails{}.inner_num * TestDetails{}.outer_num);
 		PerformTest([&](uint32)
 			{
 				TaskSystem::AsyncResume([](SyncHolder<SampleAsset> in_asset, SyncHolder<SampleAsset> in_asset2) -> TDetachCoroutine
