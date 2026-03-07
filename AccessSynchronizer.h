@@ -12,7 +12,7 @@ namespace ts
 		struct CollectionNode;
 
 		using CollectionTag = BaseTag<CollectionNode, uint8>;
-		using SynchroniserTag = BaseTag<AccessSynchronizer, uint16>;
+		using SynchroniserTag = BaseTag<AccessSynchronizer, uint8>;
 		using CollectionIndex = BaseIndex<CollectionNode>;
 		using TaskIndex = BaseTask::IndexType;
 
@@ -41,26 +41,69 @@ namespace ts
 
 		struct State
 		{
-			SynchroniserTag tag_;
 			TaskIndex last_task_;
 			CollectionIndex shared_collection_head_;
-			uint16 shared_collection_size_ = 0;
+			uint16 shared_collection_size_ = 0;//TODO uint8
 			uint16 released_shared_tasks_ = 0;
-			CollectionTag shared_collection_tag_;
+			//CollectionTag shared_collection_tag_; // Not neeeded, shared_collection_size_ and tag_ should be unique enough
 			GateTag last_task_tag_;
-		};
+			SynchroniserTag tag_; //bumped when shared collection is reset
 
-		struct SyncResult
-		{
-			TRefCountPoolPtr<BaseTask> task_;
-			GateTag task_tag_;
-			SynchroniserTag synchroniser_tag_;
+			void Validate()
+			{
+				assert(!last_task_.IsValid() || FromPoolIndex(last_task_).GetRefCount() > 0);
+			}
 		};
 
 		struct SyncMultiResult
 		{
+			// Single
+			TRefCountPoolPtr<BaseTask> task_;
+			GateTag task_tag_;
+
+			//many
 			CollectionIndex head_; // head of prerequires chain - AccessSynchronizer::CollectionNode
-			uint32 len = 0; // num of elements in chain
+			
+			//Common
+			uint32 len_ = 0; // num of elements in chain
+			SynchroniserTag synchroniser_tag_;
+
+			void ResetNoRelease()
+			{
+				task_.ResetNoRelease();
+				task_tag_.Reset();
+				head_.Reset();
+				len_ = 0;
+				synchroniser_tag_.Reset();
+			}
+
+			void SetSingle(TRefCountPoolPtr<BaseTask> in_task, GateTag in_task_tag)
+			{
+				assert(!head_.IsValid());
+				assert(in_task.GetRefCount() > 0);
+				task_ = std::move(in_task);
+				task_tag_ = in_task_tag;
+				len_ =	1;
+			}
+
+			void SetMulti(CollectionIndex in_head, uint32 in_len)
+			{
+				assert(!task_);
+				head_ = in_head;
+				len_ = in_len;
+			}
+
+			void SetSynchroniserTag(SynchroniserTag in_tag)
+			{
+				synchroniser_tag_ = in_tag;
+			}
+
+			bool IsSingle() const
+			{
+				assert(!task_.IsValid() || !head_.IsValid());
+				assert(!task_.IsValid() || (len_ == 1));
+				return task_.IsValid();
+			}
 
 			static void HandleOnTask(SyncMultiResult sync_result, BaseTask& task);
 		};
@@ -68,17 +111,19 @@ namespace ts
 		//Returns head of prerequires chain - CollectionNode
 		SyncMultiResult SyncExclusive(BaseTask& task, const GateTag task_tag)
 		{
+			assert(task.GetRefCount() > 0);
 			task.AddRef();
 
 			const TaskIndex task_index{GetPoolIndex(task)};
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 
-			CollectionIndex allocated_node;
-			CollectionIndex result;
-			uint32 result_size = 0;
+			SyncMultiResult result;
 			do
 			{
+				result.ResetNoRelease();
+
 				new_state = prev_state;
 				new_state.last_task_ = task_index;
 				new_state.last_task_tag_ = task_tag;
@@ -86,80 +131,69 @@ namespace ts
 				if (prev_state.shared_collection_size_) // return shared collection, then clear it
 				{
 					assert(prev_state.shared_collection_head_.IsValid());
-					result = prev_state.shared_collection_head_;
-					result_size = prev_state.shared_collection_size_;
+					result.SetMulti(prev_state.shared_collection_head_, prev_state.shared_collection_size_);
 
 					new_state.shared_collection_size_ = 0;
-					new_state.shared_collection_tag_.Reset();
 					new_state.shared_collection_head_.Reset();
 					new_state.released_shared_tasks_ = 0;
 					new_state.tag_ = prev_state.tag_.Next();
 				}
-				else if (!prev_state.last_task_.IsValid()) // return empty collection
+				else if (prev_state.last_task_.IsValid()) // return previous exclusive_task
 				{
-					result.Reset();
-					result_size = 0;	
-				}
-				else // return previous exclusive_task
-				{
-					if (!allocated_node.IsValid())
-					{
-						allocated_node = CollectionNode::Acquire();
-					}
-					CollectionNode& node = FromPoolIndex<CollectionNode>(allocated_node);
-					assert(!node.NextRef().IsValid());
-					node.task_.ResetNoRelease();
-					node.task_ = TRefCountPoolPtr<BaseTask>(prev_state.last_task_, false);
-					node.task_tag_ = prev_state.last_task_tag_;
-					result = allocated_node;
-					result_size = 1;
+					result.SetSingle(
+						TRefCountPoolPtr<BaseTask>(prev_state.last_task_, false),
+						prev_state.last_task_tag_);
 				}
 			} while (!state_.compare_exchange_weak(prev_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
-
-			if (allocated_node.IsValid() && (result != allocated_node))
-			{
-				FromPoolIndex<CollectionNode>(allocated_node).task_.ResetNoRelease();
-				CollectionNode::Release(allocated_node);
-			}
 
 			// release previous (replaced) exclusive task, that was not returned
 			if (prev_state.shared_collection_size_ && prev_state.last_task_.IsValid())
 			{
 				assert(prev_state.last_task_ != new_state.last_task_);
-				FromPoolIndex<BaseTask>(prev_state.last_task_).Release();
+				FromPoolIndex(prev_state.last_task_).Release();
 			}
 
-			return SyncMultiResult{ result, result_size };
+			new_state.Validate();
+			result.SetSynchroniserTag(new_state.tag_);
+			return result;
 		}
 
 		bool SyncExclusiveIfAvailible(BaseTask& task, const GateTag task_tag)
 		{
+			assert(task.GetRefCount() > 0);
+			task.AddRef();
+			
+			const TaskIndex task_index{GetPoolIndex(task)};
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 			do
 			{
 				if (prev_state.shared_collection_size_ || prev_state.last_task_.IsValid())
 				{
+					task.Release();
+					prev_state.Validate();
 					return false;
 				}
 				new_state = prev_state;
-				new_state.last_task_ = GetPoolIndex(task);;
+				new_state.last_task_ = task_index;
 				new_state.last_task_tag_ = task_tag;
 			} while (!state_.compare_exchange_weak(prev_state, new_state,
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
-			task.AddRef();
+			new_state.Validate();
 
 			return true;
 		}
 
-		//TODO: return symc tag
-		SyncResult SyncShared(BaseTask& task, const GateTag task_tag)
+		SyncMultiResult SyncShared(BaseTask& task, const GateTag task_tag)
 		{
+			assert(task.GetRefCount() > 0);
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 
 			const CollectionIndex allocated_node = CollectionNode::Acquire();
@@ -173,7 +207,6 @@ namespace ts
 				new_state.shared_collection_head_ = allocated_node;
 				new_state.shared_collection_size_ = prev_state.shared_collection_size_ + 1;
 				assert(new_state.shared_collection_size_);
-				new_state.shared_collection_tag_ = prev_state.shared_collection_tag_.Next();
 				assert(new_state.released_shared_tasks_ < new_state.shared_collection_size_);
 
 				node.NextRef() = prev_state.shared_collection_head_;
@@ -182,16 +215,20 @@ namespace ts
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
-			return SyncResult{
-				TRefCountPoolPtr<BaseTask>(prev_state.last_task_),
-				prev_state.last_task_tag_,
-				new_state.tag_};
+			new_state.Validate();
+
+			SyncMultiResult result;
+			result.SetSingle(TRefCountPoolPtr<BaseTask>(prev_state.last_task_), prev_state.last_task_tag_);
+			result.SetSynchroniserTag(new_state.tag_);
+			return result;
 		}
 
 		// return sync tag, it synced
 		std::optional<SynchroniserTag> SyncSharedIfAvailible(BaseTask& task, const GateTag task_tag)
 		{
+			assert(task.GetRefCount() > 0);
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 			CollectionIndex allocated_node;
 
@@ -203,6 +240,7 @@ namespace ts
 					{
 						CollectionNode::Release(allocated_node);
 					}
+					prev_state.Validate();
 					return {};
 				}
 
@@ -218,7 +256,6 @@ namespace ts
 				new_state.shared_collection_head_ = allocated_node;
 				new_state.shared_collection_size_ = prev_state.shared_collection_size_ + 1;
 				assert(new_state.shared_collection_size_);
-				new_state.shared_collection_tag_ = prev_state.shared_collection_tag_.Next();
 				assert(new_state.released_shared_tasks_ < new_state.shared_collection_size_);
 
 				FromPoolIndex(allocated_node).NextRef() = prev_state.shared_collection_head_;
@@ -227,6 +264,7 @@ namespace ts
 				std::memory_order_release,
 				std::memory_order_relaxed));
 
+			new_state.Validate();
 			return new_state.tag_;
 		}
 
@@ -234,11 +272,13 @@ namespace ts
 		{
 			const TaskIndex expexted{GetPoolIndex(task)};
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 			do
 			{
 				if (prev_state.last_task_ != expexted)
 				{
+					prev_state.Validate();
 					return;
 				}
 				new_state = prev_state;
@@ -250,11 +290,14 @@ namespace ts
 
 			assert(task.GetRefCount() > 1);
 			task.Release();
+
+			new_state.Validate();
 		}
 
 		void ReleaseShared([[maybe_unused]] BaseTask& task, const SynchroniserTag sync_tag)
 		{
 			State prev_state = state_.load(std::memory_order_relaxed);
+			prev_state.Validate();
 			State new_state;
 
 			CollectionIndex node_chain_to_release;
@@ -262,6 +305,7 @@ namespace ts
 			{
 				if (prev_state.tag_ != sync_tag)
 				{
+					prev_state.Validate();
 					return; //already released
 				}
 				new_state = prev_state;
@@ -273,7 +317,6 @@ namespace ts
 					node_chain_to_release = prev_state.shared_collection_head_;
 
 					new_state.shared_collection_size_ = 0;
-					new_state.shared_collection_tag_.Reset();
 					new_state.shared_collection_head_.Reset();
 					new_state.released_shared_tasks_ = 0;
 					new_state.tag_ = prev_state.tag_.Next();
@@ -292,6 +335,8 @@ namespace ts
 				CollectionNode::ReleaseChain(node_chain_to_release);
 				assert(task.GetRefCount() > 0);
 			}
+
+			new_state.Validate();
 		}
 
 		DEBUG_CODE(thread_local static bool is_any_asset_locked_;)
@@ -439,15 +484,14 @@ namespace ts
 		{
 			BaseTask* local_current_task = BaseTask::GetCurrentTask();
 			assert(local_current_task);
-			Gate* gate = local_current_task->GetGate();
-			assert(gate);
-			assert(gate->GetState() == ETaskState::PendingOrExecuting);
+			Gate& gate = local_current_task->GetGate();
+			assert(gate.GetState() == ETaskState::PendingOrExecuting);
 			assert(AccessSynchronizer::is_any_asset_locked_);
 			DEBUG_CODE(AccessSynchronizer::is_any_asset_locked_ = false;)
 			resource_->synchronizer_.ReleaseExclusive(*local_current_task);
 			constexpr bool bump_tag = true;
-			gate->Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
-			assert(gate->IsEmpty());
+			gate.Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
+			assert(gate.IsEmpty());
 		}
 
 	private:
@@ -467,13 +511,9 @@ namespace ts
 		{
 			BaseTask* local_current_task = BaseTask::GetCurrentTask();
 			assert(local_current_task);
-			Gate* gate = local_current_task->GetGate();
-			assert(gate->IsEmpty());
-			assert(gate->GetState() == ETaskState::PendingOrExecuting);
-			// Seems redundant:
-			//constexpr bool bump_tag = true;
-			//const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, bump_tag);
-			//assert(prev_state == ETaskState::PendingOrExecuting);
+			Gate& gate = local_current_task->GetGate();
+			assert(gate.IsEmpty());
+			assert(gate.GetState() == ETaskState::PendingOrExecuting);
 			return resource_->synchronizer_.SyncExclusiveIfAvailible(*local_current_task, local_current_task->GetTag());
 		}
 		void await_suspend(std::coroutine_handle<> handle)
@@ -497,8 +537,8 @@ namespace ts
 			}
 
 			assert(resource_);
-			const AccessSynchronizer::SyncMultiResult result = resource_->synchronizer_.SyncExclusive(*task, task->GetTag());
-			AccessSynchronizer::SyncMultiResult::HandleOnTask(result, *task);
+			AccessSynchronizer::SyncMultiResult result = resource_->synchronizer_.SyncExclusive(*task, task->GetTag());
+			AccessSynchronizer::SyncMultiResult::HandleOnTask(std::move(result), *task);
 		}
 		auto await_resume()
 		{
@@ -517,20 +557,23 @@ namespace ts
 			assert(resource_);
 		}
 
-		auto operator->() { return &std::as_const(*resource_); }
+		auto operator->() 
+		{ 
+			//return &std::as_const(*resource_); 
+			return resource_;
+		}
 
 		~SharedAccessScopeCo()
 		{
 			BaseTask* local_current_task = BaseTask::GetCurrentTask();
 			assert(local_current_task);
-			Gate* gate = local_current_task->GetGate();
-			assert(gate);
-			assert(gate->GetState() == ETaskState::PendingOrExecuting);
+			Gate& gate = local_current_task->GetGate();
+			assert(gate.GetState() == ETaskState::PendingOrExecuting);
 			resource_->synchronizer_.ReleaseShared(*local_current_task, synchroniser_tag_);
 			constexpr bool bump_tag = true;
-			const uint32 unblocked = gate->Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
+			const uint32 unblocked = gate.Unblock(ETaskState::PendingOrExecuting, nullptr, bump_tag);
 			assert(unblocked <= 1);
-			assert(gate->IsEmpty());
+			assert(gate.IsEmpty());
 		}
 
 	private:
@@ -551,13 +594,9 @@ namespace ts
 		{
 			BaseTask* local_current_task = BaseTask::GetCurrentTask();
 			assert(local_current_task);
-			Gate* gate = local_current_task->GetGate();
-			assert(gate->IsEmpty());
-			assert(gate->GetState() == ETaskState::PendingOrExecuting);
-			// Seems redundant:
-			//constexpr bool bump_tag = true;
-			//const ETaskState prev_state = gate->ResetStateOnEmpty(ETaskState::PendingOrExecuting, bump_tag);
-			//assert(prev_state == ETaskState::PendingOrExecuting);
+			Gate& gate = local_current_task->GetGate();
+			assert(gate.IsEmpty());
+			assert(gate.GetState() == ETaskState::PendingOrExecuting);
 			assert(!synrchoniser_tag_);
 			synrchoniser_tag_ = resource_->synchronizer_.SyncSharedIfAvailible(*local_current_task, local_current_task->GetTag());
 			return synrchoniser_tag_.has_value();
@@ -571,7 +610,7 @@ namespace ts
 				&& (local_current_task->GetRefCount() == 1)) // So noone can insert dependency during this scope
 			{
 				local_current_task->SetRetrigger();
-				local_current_task->GetGate()->Unblock(ETaskState::PendingOrExecuting);
+				local_current_task->GetGate().Unblock(ETaskState::PendingOrExecuting);
 				assert(local_current_task->GetRefCount() == 1); // If dependency is added here, then there may be a deadlock
 				task = local_current_task;
 			}
@@ -583,20 +622,15 @@ namespace ts
 			}
 
 			assert(resource_);
-			const AccessSynchronizer::SyncResult result = resource_->synchronizer_.SyncShared(*task, task->GetTag());
+			AccessSynchronizer::SyncMultiResult result = resource_->synchronizer_.SyncShared(*task, task->GetTag());
 			assert(!synrchoniser_tag_);
 			synrchoniser_tag_ = result.synchroniser_tag_;
 
-			TRefCountPtr<BaseTask> prev_task_to_sync = result.task_.ToRefCountPtr();
-			Gate* const to_sync = prev_task_to_sync ? prev_task_to_sync->GetGate() : nullptr;
-			DEBUG_CODE(const ETaskState prev_state = to_sync ? to_sync->GetState() : ETaskState::Nonexistent_Pooled;)
-			assert(!to_sync || (prev_state != ETaskState::Nonexistent_Pooled));
-			Gate* pre_req[] = { to_sync };
-			uint8 pre_req_tags[] = { result.task_tag_.RawValue() };
-			TaskSystem::HandlePrerequires(*task, pre_req, pre_req_tags);
+			AccessSynchronizer::SyncMultiResult::HandleOnTask(std::move(result), *task);
 		}
 		auto await_resume()
 		{
+			assert(synrchoniser_tag_);
 			return SharedAccessScopeCo<TValue>{std::move(resource_), *synrchoniser_tag_};
 		}
 	private:

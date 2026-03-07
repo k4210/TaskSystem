@@ -125,10 +125,10 @@ namespace ts
 			assert(resource.Get());
 			AccessSynchronizer& synchronizer = resource.Get()->synchronizer_;
 			TRefCountPtr<BaseTask> task = CreateTask(LambdaObj{ std::forward<F>(functor), std::move(resource.Get()) }, flags LOCATION_PASS);
-
-			const AccessSynchronizer::SyncMultiResult sync_result = synchronizer.SyncExclusive(*task, task->GetTag());
-			AccessSynchronizer::SyncMultiResult::HandleOnTask(sync_result, *task);
-
+			{
+				AccessSynchronizer::SyncMultiResult sync_result = synchronizer.SyncExclusive(*task, task->GetTag());
+				AccessSynchronizer::SyncMultiResult::HandleOnTask(std::move(sync_result), *task);
+			}
 			return task.Cast<GenericFuture>().Cast<Future<ResultType>>();
 		}
 
